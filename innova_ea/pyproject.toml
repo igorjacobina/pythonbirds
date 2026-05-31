@@ -15,10 +15,12 @@ dependencies = [
     "numpy>=1.24",
     "numba>=0.58",
     "pyarrow>=14",
+    "lightgbm>=4.0",
 ]
 
 [project.optional-dependencies]
 mt5 = ["MetaTrader5>=5.0.45"]   # Windows only
+dl = ["torch>=2.1"]             # Super Cérebro (Transformer); GPU recomendado
 dev = ["pytest>=7.4", "pytest-cov>=4.1"]
 
 [tool.setuptools.packages.find]

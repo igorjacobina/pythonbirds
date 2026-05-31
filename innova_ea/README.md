@@ -21,8 +21,11 @@ realismo é o default:
 - **Sem look-ahead**: o sinal decidido no fechamento da barra `i` só executa na
   abertura de `i+1`. A API torna impossível "ver o futuro".
 - **Pior preço**: toda execução piora a favor da corretora.
-- **Walk-forward + anti-overfitting**: avaliação out-of-sample por janelas e
-  Deflated Sharpe Ratio para descontar o número de tentativas.
+- **Walk-forward + anti-overfitting**: avaliação out-of-sample por janelas
+  (purgada/embargada) e Deflated Sharpe Ratio para descontar o nº de tentativas.
+- **Modelo universal ("Super Cérebro")**: um único modelo para todos os ativos
+  com Asset Embeddings (Transformer causal) ou categóricos (LightGBM) →
+  cross-asset learning.
 - **Métricas institucionais**: Sharpe, Sortino, Calmar, max drawdown e duração,
   VaR/CVaR, Profit Factor, expectancy — sempre líquidas de custos.
 
@@ -32,11 +35,11 @@ Camadas independentes e testáveis (detalhes em [`docs/ARCHITECTURE.md`](docs/AR
 
 ```
 core      → tipos fundamentais (Instrument, Bars, Timeframe)
-data      → pipeline (DataSource → resample → ParquetStore)
+data      → pipeline (MT5/CSV → limpeza/gaps → resample → ParquetStore)
 backtest  → engine realista (custos · margem/stop-out · walk-forward · métricas)
 features  → engenharia de features (volatilidade OHLC · direção · sessões)
-strategy  → geração de sinais sem look-ahead
-research  → rotulagem (triple-barrier) · mineração de padrões · PSR/DSR
+strategy  → sinais sem look-ahead (+ ModelStrategy)
+research  → painel universal · modelos (LightGBM/Transformer) · triple-barrier · PSR/DSR
 ```
 
 ## Instalação
@@ -120,11 +123,31 @@ for p in patterns:
     print(p.summary())
 ```
 
+### Modelo universal (Super Cérebro)
+
+```python
+from innova_ea.research import build_universal_panel, PurgedWalkForward, LightGBMUniversal, get_super_brain
+from innova_ea.strategy import ModelStrategy
+
+# Painel único com TODOS os ativos (features + asset_id/classe + triple-barrier).
+panel = build_universal_panel(bars_by_symbol, feature_set,
+                              asset_class_of=asset_class_of, max_horizon=16)
+
+wf = PurgedWalkForward(train_size=20000, test_size=8000, horizon=16, embargo=16)
+for train_df, test_df, win in wf.split(panel.frame):
+    model = LightGBMUniversal(panel).fit(train_df, test_df)   # baseline
+    # model = get_super_brain(panel).fit(train_df, test_df)   # Transformer (torch)
+    # previsões → estratégia → backtest com risco (Fase 3) → Deflated Sharpe
+    strat = ModelStrategy(model, feature_set, "XAUUSD", "metal", threshold=0.15)
+```
+
 Demos completas offline:
 
 ```bash
 PYTHONPATH=src python examples/run_backtest_demo.py        # backtest + risco + walk-forward
 PYTHONPATH=src python examples/run_pattern_mining_demo.py  # features + mineração de sessões
+PYTHONPATH=src python examples/run_super_brain_demo.py     # modelo universal + DSR
+PYTHONPATH=src python examples/run_super_brain_demo.py --super-brain   # Transformer (torch)
 ```
 
 ## Testes
@@ -173,8 +196,9 @@ mais rápido que reconsultar o terminal.
 - [x] **Fase 2** — Features avançadas (volatilidade/direção/sessões) + rotulagem
   (triple-barrier) + mineração de padrões por estatística condicional
 - [x] **Fase 1** — Ingestão MT5 real (fuso → UTC, limpeza defensiva, gaps,
-  histórico profundo M1 desde 2015) + script `scripts/ingest_mt5.py`
-- [ ] **Fase 4** — Camada de IA (modelos) sobre o mesmo backtest
+  histórico profundo M1 desde 2015) + universo macro global (FX/metais/índices)
+- [x] **Fase 4** — Modelo universal (LightGBM + Super Cérebro Transformer com
+  Asset Embeddings), painel multi-ativo, walk-forward purgado, validado no backtest
 - [ ] **Fase 5** — Forward test em demo → infra cloud (AWS/GCP) → execução live
 
 ## Licença

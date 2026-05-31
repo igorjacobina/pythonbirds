@@ -4,5 +4,6 @@ from innova_ea.strategy.base import (
     SignalFromColumn,
     Strategy,
 )
+from innova_ea.strategy.model_strategy import ModelStrategy
 
-__all__ = ["Strategy", "SignalFromColumn", "MovingAverageCrossover"]
+__all__ = ["Strategy", "SignalFromColumn", "MovingAverageCrossover", "ModelStrategy"]

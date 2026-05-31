@@ -116,6 +116,8 @@ liquida à força quando o nível atinge o *stop-out*.
 ### L4 — `strategy`
 - `base.py`: `Strategy` (ABC). Recebe um DataFrame de barras *até* t-1 e devolve
   o alvo de posição para t. A interface garante ausência de look-ahead.
+- `model_strategy.py`: `ModelStrategy` — converte previsões de um modelo
+  universal em alvo de posição, fechando o ciclo com o engine de risco (Fase 3).
 
 ### L4b — `features`
 - `base.py`: `Feature`/`FeatureSet` — composição de features causais em matriz.
@@ -132,9 +134,26 @@ liquida à força quando o nível atinge o *stop-out*.
 - `labeling.py`: forward returns e **triple-barrier** (López de Prado).
 - `patterns.py`: mineração por estatística condicional de retorno futuro
   (média, hit rate, expectancy, t-stat vs. baseline).
+- `dataset.py`: `UniversalPanel` — empilha todos os ativos num único painel
+  (features + `asset_id`/classe + rótulo) com barreiras adaptativas por
+  volatilidade; `PerAssetScaler` padroniza por ativo (ajuste só no treino).
+- `splitting.py`: `PurgedWalkForward` — walk-forward com **purga + embargo** para
+  rótulos sobrepostos (sem vazamento via horizonte).
+- `models/`: `UniversalModel` (contrato), `LightGBMUniversal` (baseline com
+  `asset_id` categórico), `SuperBrain` (Transformer causal com Asset Embeddings;
+  torch lazy).
 - `overfitting.py`: Probabilistic & Deflated Sharpe Ratio (Bailey & López de
   Prado) — desconta o número de tentativas para separar skill de sorte.
-- *(próximas fases)* modelos supervisionados (XGBoost → atenção).
+
+#### Super Cérebro (Universal Model)
+
+Um único modelo devora o painel de TODOS os ativos. A identidade do ativo entra
+por **embeddings** (ativo + classe) no Transformer, ou como **categórico** no
+LightGBM — o backbone compartilhado aprende a física universal do preço e
+transfere conhecimento entre ativos (*cross-asset learning*). O Transformer usa
+**causal mask** (sem look-ahead). Estratégia campeão-desafiante: LightGBM como
+baseline robusto, Super Cérebro como modelo-alvo. As previsões são sempre
+validadas pelo MESMO backtest com custos/risco (Fase 3) e Deflated Sharpe.
 
 ## 5. Decisões técnicas
 
@@ -165,8 +184,11 @@ liquida à força quando o nível atinge o *stop-out*.
   direção, sessões/horários de liquidez) + rotulagem (triple-barrier) + motor de
   mineração por estatística condicional.
 - **Fase 1 (concluída)**: Conector MT5 real (fuso, limpeza defensiva, gaps,
-  histórico profundo M1 desde 2015) + script de ingestão para Parquet.
-- **Fase 4**: Camada de IA (modelos) sobre o mesmo backtest.
+  histórico profundo M1 desde 2015) + ingestão de universo macro global (FX,
+  metais, índices) para Parquet.
+- **Fase 4 (concluída)**: Camada de IA — modelo universal único (LightGBM
+  baseline + Super Cérebro Transformer com Asset Embeddings), painel multi-ativo,
+  walk-forward purgado, validado pelo mesmo backtest com risco + Deflated Sharpe.
 - **Fase 5**: Forward test em demo → infra cloud (AWS/GCP) → execução live.
 
 > A Fase 3 foi priorizada antes da 2: gestão de risco precisa estar perfeita
