@@ -53,3 +53,12 @@ coverage.xml
 # Sphinx documentation
 docs/_build/
 
+# forex_quant: data artifacts & caches
+forex_quant/data/
+*.parquet
+.pytest_cache/
+__pycache__/
+.numba_cache/
+*.nbi
+*.nbc
+
