@@ -53,8 +53,8 @@ coverage.xml
 # Sphinx documentation
 docs/_build/
 
-# forex_quant: data artifacts & caches
-forex_quant/data/
+# innova_ea: data artifacts & caches
+innova_ea/data/
 *.parquet
 .pytest_cache/
 __pycache__/
