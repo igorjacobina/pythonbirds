@@ -134,20 +134,37 @@ PYTHONPATH=src python -m pytest
 ```
 
 A suíte valida P&L exato, ausência de look-ahead (lag de 1 barra), impacto dos
-custos, contabilidade de posições short, a fórmula de margem MT5, stop-out e
-bloqueio de ordens, o walk-forward e o Deflated Sharpe Ratio.
+custos, margem MT5/stop-out/bloqueio de ordens, walk-forward, Deflated Sharpe,
+features causais, mineração de padrões e a ingestão MT5 (fuso → UTC, limpeza,
+gaps) — esta última com um terminal MT5 falso, rodável em Linux/CI.
 
-## Conectando ao MetaTrader 5
+## Ingestão de dados reais (MetaTrader 5)
 
-`MT5Source` pagina o histórico e normaliza tudo para o schema canônico (UTC).
-Funciona apenas no Windows com um terminal MT5 instalado e logado:
+Pipeline definitivo: extrai M1 profundo (desde 2015) das majors, converte o
+**fuso do servidor → UTC**, faz **limpeza defensiva**, detecta **buracos** contra
+o calendário de mercado e grava em Parquet particionado. Script pronto:
 
-```python
-src = get_mt5_source(login=12345678, password="...", server="MeuBroker-Demo")
+```bash
+# Credenciais por env var (Windows, com terminal MT5 logado):
+set MT5_LOGIN=12345678 & set MT5_PASSWORD=... & set MT5_SERVER=MeuBroker-Demo
+
+# EUR/USD primeiro, depois as demais majors, M1 de 2015 até hoje:
+python scripts/ingest_mt5.py --start 2015-01-01
+
+# Apenas EUR/USD, servidor com offset fixo +2 (broker sem horário de verão):
+python scripts/ingest_mt5.py --symbols EURUSD --server-utc-offset 2
 ```
 
-Para pesquisa de longo prazo, ingira uma vez para Parquet e leia de lá — é
-ordens de magnitude mais rápido que reconsultar o terminal.
+Tratamento defensivo embutido (tudo testado em CI com um MT5 falso):
+
+- **Fuso**: o `time` do MT5 é o relógio do servidor (EET, +2/+3 com DST).
+  Convertido corretamente via fuso IANA (`--server-tz`) ou offset fixo.
+- **Buracos**: nunca se fabrica preço. Fim de semana/feriado não contam como
+  gap; buracos reais e barras fora do horário (alerta de fuso) são reportados.
+- **Histórico profundo** em chunks mensais; gravação idempotente/retomável.
+
+Para pesquisa, ingira uma vez para Parquet e leia de lá — ordens de magnitude
+mais rápido que reconsultar o terminal.
 
 ## Roadmap
 
@@ -155,7 +172,8 @@ ordens de magnitude mais rápido que reconsultar o terminal.
 - [x] **Fase 3** — Risco/margem/stop-out (MT5) + walk-forward + anti-overfitting
 - [x] **Fase 2** — Features avançadas (volatilidade/direção/sessões) + rotulagem
   (triple-barrier) + mineração de padrões por estatística condicional
-- [ ] **Fase 1** — Conector MT5 real + ingestão Dukascopy 2015→hoje
+- [x] **Fase 1** — Ingestão MT5 real (fuso → UTC, limpeza defensiva, gaps,
+  histórico profundo M1 desde 2015) + script `scripts/ingest_mt5.py`
 - [ ] **Fase 4** — Camada de IA (modelos) sobre o mesmo backtest
 - [ ] **Fase 5** — Forward test em demo → infra cloud (AWS/GCP) → execução live
 

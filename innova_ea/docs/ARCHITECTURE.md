@@ -68,12 +68,29 @@ Isso elimina inconsistências entre timeframes e economiza storage.
 
 ### L2 — `data`
 - `sources/base.py`: `DataSource` (ABC) — contrato `fetch(symbol, tf, start, end)`.
-- `sources/mt5_source.py`: conector MetaTrader 5 (produção/forward test).
+- `sources/mt5_source.py`: conector MetaTrader 5 — init/login com retry, fuso do
+  servidor → UTC, histórico profundo em chunks; módulo MT5 injetável para testes.
 - `sources/csv_source.py`: loader de histórico (Dukascopy/CSV) para pesquisa.
 - `sources/synthetic.py`: gerador GBM com microestrutura, para testes/CI sem rede.
+- `timeutils.py`: conversão impecável do epoch do servidor (EET/DST) para UTC.
+- `calendar.py`: `ForexCalendar` — janela semanal de mercado e feriados; gera a
+  grade de timestamps esperados (referência para detecção de buracos).
+- `cleaning.py`: limpeza defensiva (`clean_bars`) e análise de gaps
+  (`analyze_gaps`) contra o calendário — detecta buracos reais e fuso errado.
 - `resample.py`: agregação de timeframe 100% Polars (right-closed, label correto).
 - `storage.py`: `ParquetStore` particionado, idempotente, com upsert por range.
 - `pipeline.py`: orquestra fetch → validate → store, com checkpoint/retomada.
+
+#### Ingestão MT5 (princípios)
+
+- **Fuso**: o `time` do MT5 é o relógio do servidor (EET, +2/+3 com DST). Tratá-lo
+  como UTC é o erro silencioso mais comum; convertemos via fuso IANA ou offset fixo.
+- **Buracos**: nunca se fabrica preço (forward-fill cria candle falso). Buracos são
+  detectados contra a grade de mercado e **reportados**; fim de semana/feriado não
+  contam como buraco. Barras fora do horário disparam alerta de fuso.
+- **Histórico profundo**: M1 desde 2015 (~3,7M barras/par) é baixado em chunks
+  mensais; o `ParquetStore` deduplica na gravação (idempotente/retomável).
+- Script pronto: `scripts/ingest_mt5.py` (EUR/USD primeiro, depois as majors).
 
 ### L3 — `backtest`
 - `costs.py`: modelos de `Spread`, `Slippage`, `Commission`, `Swap`.
@@ -147,7 +164,8 @@ liquida à força quando o nível atinge o *stop-out*.
 - **Fase 2 (concluída)**: Biblioteca de features avançadas (volatilidade OHLC,
   direção, sessões/horários de liquidez) + rotulagem (triple-barrier) + motor de
   mineração por estatística condicional.
-- **Fase 1**: Conector MT5 real + ingestão de histórico Dukascopy + storage.
+- **Fase 1 (concluída)**: Conector MT5 real (fuso, limpeza defensiva, gaps,
+  histórico profundo M1 desde 2015) + script de ingestão para Parquet.
 - **Fase 4**: Camada de IA (modelos) sobre o mesmo backtest.
 - **Fase 5**: Forward test em demo → infra cloud (AWS/GCP) → execução live.
 
