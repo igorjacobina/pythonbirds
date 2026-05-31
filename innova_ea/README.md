@@ -189,6 +189,23 @@ Tratamento defensivo embutido (tudo testado em CI com um MT5 falso):
 Para pesquisa, ingira uma vez para Parquet e leia de lá — ordens de magnitude
 mais rápido que reconsultar o terminal.
 
+## Treino e implantação (Fase 5)
+
+Depois de ingerir os dados reais, treine os modelos universais e salve os
+artefatos prontos para execução:
+
+```bash
+python scripts/train_models.py --model both --store ./data --out ./artifacts
+```
+
+O script roda walk-forward purgado (Sharpe OOS + Deflated Sharpe), treina o
+modelo final em todo o histórico e salva `artifacts/<modelo>/` com `manifest.json`.
+
+- **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** — manual exato de deploy local no
+  Windows: clonar a branch, criar o venv, ingerir os 15 ativos e treinar.
+- **[`docs/CLOUD_ARCHITECTURE.md`](docs/CLOUD_ARCHITECTURE.md)** — arquitetura
+  AWS/GCP recomendada (planos de pesquisa/treino e de execução separados).
+
 ## Roadmap
 
 - [x] **Fase 0** — Core + Data Pipeline + Backtest Engine + Métricas
@@ -199,7 +216,9 @@ mais rápido que reconsultar o terminal.
   histórico profundo M1 desde 2015) + universo macro global (FX/metais/índices)
 - [x] **Fase 4** — Modelo universal (LightGBM + Super Cérebro Transformer com
   Asset Embeddings), painel multi-ativo, walk-forward purgado, validado no backtest
-- [ ] **Fase 5** — Forward test em demo → infra cloud (AWS/GCP) → execução live
+- [~] **Fase 5** — Pacote de implantação pronto (script de treino + persistência
+  de modelos + manual de deploy Windows + arquitetura cloud). Falta: forward test
+  em demo → infra cloud (AWS/GCP) → execução live
 
 ## Licença
 

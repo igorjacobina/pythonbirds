@@ -92,7 +92,7 @@ def main() -> None:
     print(f"Painel: {panel.frame.height:,} linhas | {len(panel.feature_names)} features "
           f"| {panel.n_assets} ativos | rótulos down/flat/up = {dist.tolist()}")
 
-    wf = PurgedWalkForward(train_size=6000, test_size=2000,
+    wf = PurgedWalkForward(train_size=30000, test_size=12000,
                            horizon=MAX_HORIZON, embargo=MAX_HORIZON)
     ppy = periods_per_year(TF)
     oos_sharpes: list[float] = []

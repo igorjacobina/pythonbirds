@@ -26,6 +26,8 @@ class ModelStrategy(Strategy):
         asset_class: classe do ativo (deve estar no vocabulário de classes).
         threshold: zona morta — sinais com |valor| < threshold viram 0 (não opera).
         scale: amplificação do sinal antes do clip em [-1, 1].
+        warmup: nº de barras iniciais sem operar (aquecimento das features), igual
+            ao usado no painel de treino para consistência treino/execução.
     """
 
     def __init__(
@@ -37,6 +39,7 @@ class ModelStrategy(Strategy):
         *,
         threshold: float = 0.0,
         scale: float = 1.0,
+        warmup: int = 150,
         name: str | None = None,
     ) -> None:
         if asset not in model.asset_vocab:
@@ -50,11 +53,15 @@ class ModelStrategy(Strategy):
         self.asset_class_id = model.class_vocab.index(asset_class)
         self.threshold = threshold
         self.scale = scale
+        self.warmup = warmup
         self.name = name or f"model_{asset}"
 
     def generate_targets(self, bars: pl.DataFrame, inst: Instrument) -> np.ndarray:
         feats = self.feature_set.transform(bars)  # time + features
+        # Nulos estruturais (sessão inativa) → 0, exatamente como no treino.
         df = feats.with_columns(
+            [pl.col(c).fill_null(0) for c in self.model.feature_names]
+        ).with_columns(
             pl.lit(self.asset_id, dtype=pl.Int32).alias("asset_id"),
             pl.lit(self.asset_class_id, dtype=pl.Int32).alias("asset_class_id"),
             pl.lit(self.asset).alias("asset"),
@@ -63,12 +70,8 @@ class ModelStrategy(Strategy):
         signal = self.model.predict_signal(df).astype(np.float64)
         signal = np.nan_to_num(signal, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Aquecimento das features (linhas com nulos) → fora do mercado.
-        null_row = df.select(
-            pl.any_horizontal([pl.col(c).is_null() for c in self.model.feature_names])
-            .alias("n")
-        )["n"].to_numpy()
-        signal[null_row] = 0.0
+        # Aquecimento inicial (janelas rolantes indefinidas) → fora do mercado.
+        signal[: self.warmup] = 0.0
 
         # Zona morta + escala + clip.
         signal = np.where(np.abs(signal) < self.threshold, 0.0, signal * self.scale)

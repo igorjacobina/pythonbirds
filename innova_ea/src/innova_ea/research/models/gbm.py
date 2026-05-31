@@ -13,6 +13,9 @@ nem pandas.
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 import polars as pl
 
@@ -112,3 +115,32 @@ class LightGBMUniversal(UniversalModel):
             raise RuntimeError("modelo não treinado")
         imp = self._booster.feature_importance(importance_type=importance_type).astype(float)
         return dict(sorted(zip(self._cols, imp), key=lambda kv: kv[1], reverse=True))
+
+    # ------------------------------------------------------------- persistência
+    def save(self, path: str | Path) -> None:
+        """Salva o booster + metadados (features, vocabulário) para deploy."""
+        if self._booster is None:
+            raise RuntimeError("modelo não treinado")
+        p = Path(path)
+        p.mkdir(parents=True, exist_ok=True)
+        self._booster.save_model(str(p / "model.txt"))
+        (p / "meta.json").write_text(json.dumps({
+            "kind": "lightgbm",
+            "feature_names": self.feature_names,
+            "asset_vocab": self.asset_vocab,
+            "class_vocab": self.class_vocab,
+        }, ensure_ascii=False, indent=2))
+
+    @classmethod
+    def load(cls, path: str | Path) -> "LightGBMUniversal":
+        """Recarrega um modelo salvo (para validação/execução)."""
+        import lightgbm as lgb
+
+        p = Path(path)
+        meta = json.loads((p / "meta.json").read_text())
+        panel = UniversalPanel(
+            pl.DataFrame(), meta["feature_names"], meta["asset_vocab"], meta["class_vocab"]
+        )
+        obj = cls(panel)
+        obj._booster = lgb.Booster(model_file=str(p / "model.txt"))
+        return obj

@@ -34,30 +34,10 @@ from innova_ea.data import (
     get_mt5_source,
     resample,
 )
-
-# --- Universo de ativos (escopo de fundo macro global) ---
-# Nomes de símbolo variam por corretora; ajuste com --symbols se necessário.
-# Aliases comuns: US100≈NAS100, DE40≈GER40, UK100≈FTSE100, HK50≈HSI.
-FOREX_MAJORS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD"]
-METALS = ["XAUUSD", "XAGUSD"]                        # ouro, prata
-US_INDICES = ["US30", "US100", "US500"]             # Dow, NASDAQ, S&P 500
-GLOBAL_INDICES = ["DE40", "JP225", "UK100", "HK50"]  # DAX, Nikkei, FTSE, Hang Seng
-
-# EUR/USD obrigatoriamente primeiro.
-DEFAULT_UNIVERSE = FOREX_MAJORS + METALS + US_INDICES + GLOBAL_INDICES
-
-ASSET_CLASS: dict[str, str] = {
-    **{s: "forex" for s in FOREX_MAJORS},
-    **{s: "metal" for s in METALS},
-    **{s: "index" for s in US_INDICES + GLOBAL_INDICES},
-}
+from innova_ea.universe import DEFAULT_UNIVERSE, asset_class_of, is_exchange_traded
 
 DERIVED_TFS = [Timeframe.M5, Timeframe.M15, Timeframe.M30,
                Timeframe.H1, Timeframe.H4, Timeframe.D1]
-
-
-def asset_class_of(symbol: str) -> str:
-    return ASSET_CLASS.get(symbol.upper(), "forex")
 
 
 def calendar_for(symbol: str, fx_calendar: ForexCalendar) -> ForexCalendar | None:
@@ -68,7 +48,7 @@ def calendar_for(symbol: str, fx_calendar: ForexCalendar) -> ForexCalendar | Non
     calendário FX geraria milhares de buracos falsos. Até termos calendários de
     bolsa dedicados, a análise por grade é pulada para índices (a limpeza segue).
     """
-    return fx_calendar if asset_class_of(symbol) in ("forex", "metal") else None
+    return None if is_exchange_traded(symbol) else fx_calendar
 
 
 def _parse_date(s: str) -> datetime:

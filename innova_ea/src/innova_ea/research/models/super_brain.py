@@ -212,6 +212,62 @@ class SuperBrain(UniversalModel):
         return float(criterion(self.net(x, a, c), y).item())
 
     # -------------------------------------------------------------- inferência
+    # ------------------------------------------------------------- persistência
+    def save(self, path) -> None:
+        """Salva pesos + config + scaler + vocabulário para deploy."""
+        from pathlib import Path
+
+        if self.net is None:
+            raise RuntimeError("modelo não treinado")
+        p = Path(path)
+        p.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "kind": "super_brain",
+                "state_dict": self.net.state_dict(),
+                "window": self.window,
+                "cfg": self.cfg,
+                "feature_names": self.feature_names,
+                "asset_vocab": self.asset_vocab,
+                "class_vocab": self.class_vocab,
+                "scaler": {
+                    "mean": self.scaler._mean,
+                    "std": self.scaler._std,
+                    "global_mean": self.scaler._global_mean,
+                    "global_std": self.scaler._global_std,
+                    "features": self.scaler._features,
+                },
+            },
+            str(p / "super_brain.pt"),
+        )
+
+    @classmethod
+    def load(cls, path) -> "SuperBrain":
+        """Recarrega o Super Cérebro salvo (para validação/execução)."""
+        from pathlib import Path
+
+        from innova_ea.research.dataset import UniversalPanel
+
+        bundle = torch.load(str(Path(path) / "super_brain.pt"), map_location="cpu",
+                            weights_only=False)
+        panel = UniversalPanel(
+            pl.DataFrame(), bundle["feature_names"],
+            bundle["asset_vocab"], bundle["class_vocab"],
+        )
+        obj = cls(panel, window=bundle["window"], **bundle["cfg"])
+        obj.net = _SuperBrainNet(
+            len(obj.feature_names), obj.n_assets, obj.n_asset_classes,
+            window=obj.window, **obj.cfg,
+        ).to(obj.device)
+        obj.net.load_state_dict(bundle["state_dict"])
+        sc = bundle["scaler"]
+        obj.scaler._mean = sc["mean"]
+        obj.scaler._std = sc["std"]
+        obj.scaler._global_mean = sc["global_mean"]
+        obj.scaler._global_std = sc["global_std"]
+        obj.scaler._features = sc["features"]
+        return obj
+
     @torch.no_grad()
     def predict_proba(self, df: pl.DataFrame) -> np.ndarray:
         if self.net is None:

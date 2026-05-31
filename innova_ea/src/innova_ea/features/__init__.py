@@ -1,5 +1,6 @@
 """Camada de engenharia de features — dinâmica de preço, direção e sessões."""
 from innova_ea.features.base import ExprFeature, Feature, FeatureSet
+from innova_ea.features.presets import default_feature_set
 from innova_ea.features.directional import (
     BodyRatio,
     CloseLocationValue,
@@ -34,6 +35,7 @@ __all__ = [
     "Feature",
     "ExprFeature",
     "FeatureSet",
+    "default_feature_set",
     "LogReturn",
     "ReturnZScore",
     "CumulativeReturn",

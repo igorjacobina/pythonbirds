@@ -79,9 +79,16 @@ def build_universal_panel(
     max_horizon: int = 16,
     atr_window: int = 20,
     vol_mult: float = 1.5,
-    drop_warmup: bool = True,
+    warmup: int = 150,
 ) -> UniversalPanel:
     """Constrói o painel unificado a partir de barras por ativo.
+
+    Tratamento de nulos:
+      * **aquecimento** (janelas rolantes indefinidas no início) → descarta as
+        primeiras ``warmup`` barras de cada ativo, por POSIÇÃO;
+      * **nulos estruturais** (features de sessão quando a sessão está inativa)
+        → preenche com 0 (o flag ``*_active`` já indica a inatividade). NUNCA
+        descarta a linha por isso, senão perderíamos quase todo o painel.
 
     Args:
         bars_by_symbol: mapeia símbolo → barras (schema canônico, validadas).
@@ -89,7 +96,7 @@ def build_universal_panel(
         asset_class_of: função símbolo → classe de ativo (forex/metal/index).
         max_horizon: horizonte (barras) da barreira de tempo do triple-barrier.
         atr_window/vol_mult: parametrizam a largura adaptativa das barreiras.
-        drop_warmup: remove linhas com features nulas (aquecimento das janelas).
+        warmup: nº de barras iniciais a descartar por ativo (aquecimento).
     """
     symbols = sorted(bars_by_symbol)
     asset_vocab = symbols
@@ -102,7 +109,7 @@ def build_universal_panel(
 
     for symbol in symbols:
         bars = bars_by_symbol[symbol]
-        if bars.height <= max_horizon + atr_window:
+        if bars.height <= max_horizon + warmup:
             continue
         feats = feature_set.transform(bars)  # time + features
         width = _adaptive_width(bars, atr_window, vol_mult)
@@ -117,10 +124,10 @@ def build_universal_panel(
             pl.lit(cls).alias("asset_class"),
             pl.lit(class_index[cls], dtype=pl.Int32).alias("asset_class_id"),
         )
-        # As últimas `max_horizon` barras não têm futuro completo → descartadas.
-        df = df.head(df.height - max_horizon)
-        if drop_warmup:
-            df = df.drop_nulls(subset=feat_names)
+        # Cauda sem futuro completo (rótulo) e aquecimento inicial → descartados.
+        df = df.head(df.height - max_horizon).slice(warmup)
+        # Nulos estruturais restantes (sessão inativa) → 0.
+        df = df.with_columns([pl.col(c).fill_null(0) for c in feat_names])
         frames.append(df)
 
     if not frames:

@@ -189,7 +189,12 @@ validadas pelo MESMO backtest com custos/risco (Fase 3) e Deflated Sharpe.
 - **Fase 4 (concluída)**: Camada de IA — modelo universal único (LightGBM
   baseline + Super Cérebro Transformer com Asset Embeddings), painel multi-ativo,
   walk-forward purgado, validado pelo mesmo backtest com risco + Deflated Sharpe.
-- **Fase 5**: Forward test em demo → infra cloud (AWS/GCP) → execução live.
+- **Fase 5 (pacote de implantação pronto)**: script de treino (`train_models.py`),
+  persistência de modelos (save/load), conjunto de features de produção
+  (`features.presets`), universo centralizado (`innova_ea.universe`), manual de
+  deploy Windows (`docs/DEPLOYMENT.md`) e arquitetura cloud
+  (`docs/CLOUD_ARCHITECTURE.md`). Falta: forward test em demo → infra cloud
+  (AWS/GCP) → execução live.
 
 > A Fase 3 foi priorizada antes da 2: gestão de risco precisa estar perfeita
 > antes de minerar padrões, para que toda métrica de estratégia já nasça sob as
