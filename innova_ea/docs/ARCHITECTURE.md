@@ -100,10 +100,24 @@ liquida à força quando o nível atinge o *stop-out*.
 - `base.py`: `Strategy` (ABC). Recebe um DataFrame de barras *até* t-1 e devolve
   o alvo de posição para t. A interface garante ausência de look-ahead.
 
+### L4b — `features`
+- `base.py`: `Feature`/`FeatureSet` — composição de features causais em matriz.
+- `volatility.py`: estimadores OHLC de alta eficiência (Parkinson, Garman-Klass,
+  Rogers-Satchell, Yang-Zhang) + regime de volatilidade.
+- `directional.py`: efficiency ratio (Kaufman), close location value, corpo/pavios.
+- `returns.py`: log-retornos, retorno acumulado e z-score de retorno.
+- `sessions.py`: features de abertura de sessão (thrust, opening range/breakout,
+  expansão de volatilidade) para Tóquio/Londres/NY e killzones (UTC).
+- `time_features.py`: encoding cíclico (sin/cos) e perfil de volatilidade
+  intradiário (fit/transform, sem vazamento).
+
 ### L5 — `research`
+- `labeling.py`: forward returns e **triple-barrier** (López de Prado).
+- `patterns.py`: mineração por estatística condicional de retorno futuro
+  (média, hit rate, expectancy, t-stat vs. baseline).
 - `overfitting.py`: Probabilistic & Deflated Sharpe Ratio (Bailey & López de
   Prado) — desconta o número de tentativas para separar skill de sorte.
-- *(próximas fases)* mineração de padrões e modelos (XGBoost → atenção).
+- *(próximas fases)* modelos supervisionados (XGBoost → atenção).
 
 ## 5. Decisões técnicas
 
@@ -130,8 +144,10 @@ liquida à força quando o nível atinge o *stop-out*.
   com demo rodável em dados sintéticos e suíte de testes.
 - **Fase 3 (concluída)**: Margem/stop-out/bloqueio de ordens (estilo MT5) +
   walk-forward + controle de overfitting (PSR/DSR). Risco blindado.
+- **Fase 2 (concluída)**: Biblioteca de features avançadas (volatilidade OHLC,
+  direção, sessões/horários de liquidez) + rotulagem (triple-barrier) + motor de
+  mineração por estatística condicional.
 - **Fase 1**: Conector MT5 real + ingestão de histórico Dukascopy + storage.
-- **Fase 2**: Biblioteca de features e detecção de padrões de movimento.
 - **Fase 4**: Camada de IA (modelos) sobre o mesmo backtest.
 - **Fase 5**: Forward test em demo → infra cloud (AWS/GCP) → execução live.
 

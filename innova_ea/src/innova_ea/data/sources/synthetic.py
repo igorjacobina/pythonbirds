@@ -26,11 +26,17 @@ class SyntheticSource(DataSource):
         annual_vol: float = 0.08,
         annual_drift: float = 0.0,
         seed: int = 42,
+        vol_by_hour: dict[int, float] | None = None,
+        drift_by_hour: dict[int, float] | None = None,
     ) -> None:
         self.start_price = start_price
         self.annual_vol = annual_vol
         self.annual_drift = annual_drift
         self.seed = seed
+        # Sazonalidade intradiária OPCIONAL (ground-truth para validar a Fase 2):
+        # multiplicador de volatilidade e deslocamento de drift por hora UTC.
+        self.vol_by_hour = vol_by_hour
+        self.drift_by_hour = drift_by_hour
 
     def fetch(
         self,
@@ -57,21 +63,34 @@ class SyntheticSource(DataSource):
         mu = (self.annual_drift - 0.5 * self.annual_vol**2) * dt
         sigma = self.annual_vol * np.sqrt(dt)
 
-        log_ret = mu + sigma * rng.standard_normal(n)
+        times = [start + i * step for i in range(n)]
+        hours = np.array([t.hour for t in times], dtype=np.int64)
+
+        # Aplica sazonalidade intradiária por hora UTC (se configurada).
+        sigma_arr = np.full(n, sigma, dtype=np.float64)
+        mu_arr = np.full(n, mu, dtype=np.float64)
+        if self.vol_by_hour:
+            mult = np.array([self.vol_by_hour.get(int(h), 1.0) for h in hours])
+            sigma_arr = sigma * mult
+        if self.drift_by_hour:
+            mu_arr = mu + np.array(
+                [self.drift_by_hour.get(int(h), 0.0) * dt for h in hours]
+            )
+
+        log_ret = mu_arr + sigma_arr * rng.standard_normal(n)
         close = self.start_price * np.exp(np.cumsum(log_ret))
         open_ = np.empty(n)
         open_[0] = self.start_price
         open_[1:] = close[:-1]
 
-        # Wicks: amplitude intrabar proporcional a sigma.
+        # Wicks: amplitude intrabar proporcional à sigma (sazonal) da barra.
         body_hi = np.maximum(open_, close)
         body_lo = np.minimum(open_, close)
-        wick = np.abs(rng.standard_normal(n)) * sigma * close
+        wick = np.abs(rng.standard_normal(n)) * sigma_arr * close
         high = body_hi + wick * rng.uniform(0.0, 1.0, n)
         low = body_lo - wick * rng.uniform(0.0, 1.0, n)
         volume = rng.uniform(100, 1000, n)
 
-        times = [start + i * step for i in range(n)]
         df = pl.DataFrame(
             {
                 "time": times,

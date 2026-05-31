@@ -34,8 +34,9 @@ Camadas independentes e testáveis (detalhes em [`docs/ARCHITECTURE.md`](docs/AR
 core      → tipos fundamentais (Instrument, Bars, Timeframe)
 data      → pipeline (DataSource → resample → ParquetStore)
 backtest  → engine realista (custos · margem/stop-out · walk-forward · métricas)
+features  → engenharia de features (volatilidade OHLC · direção · sessões)
 strategy  → geração de sinais sem look-ahead
-research  → controle de overfitting (PSR/DSR)
+research  → rotulagem (triple-barrier) · mineração de padrões · PSR/DSR
 ```
 
 ## Instalação
@@ -96,10 +97,34 @@ trials = [deannualize_sharpe(s, ppy) for s in res.oos_sharpes]
 print(deflated_sharpe_ratio(trials, n_obs=bars.height))  # prob. de edge real
 ```
 
-Demo completa offline:
+### Engenharia de features + mineração de padrões
+
+```python
+from innova_ea.features import FeatureSet, YangZhang, EfficiencyRatio, SessionOpenFeature
+from innova_ea.features.sessions import LONDON
+from innova_ea.research import forward_return, scan_conditions
+import polars as pl
+
+feats = FeatureSet([
+    YangZhang(20), EfficiencyRatio(20),
+    SessionOpenFeature(LONDON, opening_range_bars=4),
+]).transform(bars)
+feats = feats.with_columns(forward_return(bars, horizon=4).alias("fwd_ret"))
+
+# Minera padrões nos horários de liquidez (média, hit rate, t-stat vs baseline).
+patterns = scan_conditions(feats, "fwd_ret", {
+    "londres_thrust_alta": (pl.col("london_active") == 1) & (pl.col("london_thrust_norm") > 0),
+    "londres_breakout":     pl.col("london_or_breakout") == 1,
+}, min_samples=50)
+for p in patterns:
+    print(p.summary())
+```
+
+Demos completas offline:
 
 ```bash
-PYTHONPATH=src python examples/run_backtest_demo.py
+PYTHONPATH=src python examples/run_backtest_demo.py        # backtest + risco + walk-forward
+PYTHONPATH=src python examples/run_pattern_mining_demo.py  # features + mineração de sessões
 ```
 
 ## Testes
@@ -128,8 +153,9 @@ ordens de magnitude mais rápido que reconsultar o terminal.
 
 - [x] **Fase 0** — Core + Data Pipeline + Backtest Engine + Métricas
 - [x] **Fase 3** — Risco/margem/stop-out (MT5) + walk-forward + anti-overfitting
+- [x] **Fase 2** — Features avançadas (volatilidade/direção/sessões) + rotulagem
+  (triple-barrier) + mineração de padrões por estatística condicional
 - [ ] **Fase 1** — Conector MT5 real + ingestão Dukascopy 2015→hoje
-- [ ] **Fase 2** — Biblioteca de features e detecção de padrões de movimento
 - [ ] **Fase 4** — Camada de IA (modelos) sobre o mesmo backtest
 - [ ] **Fase 5** — Forward test em demo → infra cloud (AWS/GCP) → execução live
 
