@@ -112,11 +112,26 @@ Parâmetros úteis: `--timeframe M15`, `--max-horizon 16`, `--train-size`,
 
 ---
 
-## 3. Próximo passo — execução
-A execução ao vivo roda numa VM Windows próxima ao broker, carregando o artefato
-promovido e operando via `ModelStrategy` + as travas de risco da Fase 3
-(margem, stop-out, kill-switch). Veja a arquitetura em
-[`CLOUD_ARCHITECTURE.md`](CLOUD_ARCHITECTURE.md).
+## 3. Execução live
 
-> Sempre faça **forward test em conta DEMO** por semanas antes de qualquer
-> capital real. Backtest e walk-forward não substituem o mercado ao vivo.
+A execução roda na mesma VM Windows (terminal MT5 logado), carregando o artefato
+promovido. **Padrão seguro: paper mode** — só registra decisões, não envia ordens.
+
+```powershell
+# Paper mode (valide o setup primeiro):
+python scripts\run_execution.py --model lightgbm --artifacts .\artifacts --symbols EURUSD XAUUSD
+
+# Conta DEMO (ordens reais em demo), com travas:
+python scripts\run_execution.py --model lightgbm --artifacts .\artifacts `
+    --symbols EURUSD --live --max-lots 0.1 --daily-max-loss 0.05 --leverage 100
+```
+
+A cada barra fechada: features → modelo → **conciliação** contra a posição real
+(sem duplicidade/órfãs) → travas de **margem** → ordem. O **Kill-Switch** zera a
+carteira e bloqueia entradas se a perda diária ultrapassar `--daily-max-loss` ou
+a conexão ficar instável. `Ctrl+C` encerra com desconexão limpa.
+
+> Sempre faça **forward test em conta DEMO** por semanas antes de capital real.
+> Backtest e walk-forward não substituem o mercado ao vivo. Arquitetura de nuvem
+> (planos separados de pesquisa e execução) em
+> [`CLOUD_ARCHITECTURE.md`](CLOUD_ARCHITECTURE.md).

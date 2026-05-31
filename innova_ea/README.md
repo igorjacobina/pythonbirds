@@ -206,6 +206,24 @@ modelo final em todo o histórico e salva `artifacts/<modelo>/` com `manifest.js
 - **[`docs/CLOUD_ARCHITECTURE.md`](docs/CLOUD_ARCHITECTURE.md)** — arquitetura
   AWS/GCP recomendada (planos de pesquisa/treino e de execução separados).
 
+### Execução live (event-driven)
+
+Pluga o artefato treinado e opera por barra fechada, com conciliação contra a
+corretora e kill-switch. **Padrão seguro: paper mode** (não envia ordens):
+
+```bash
+# Paper mode (valida o setup, só registra decisões):
+python scripts/run_execution.py --model lightgbm --artifacts ./artifacts --symbols EURUSD XAUUSD
+
+# Operação real (após forward test em DEMO):
+python scripts/run_execution.py --model lightgbm --artifacts ./artifacts --symbols EURUSD --live
+```
+
+A cada nova barra: features → modelo → alvo → **conciliação** (a posição real é a
+verdade → sem duplicidade/órfãs) → travas de **margem** (Fase 3) → ordem. O
+**Kill-Switch** zera a carteira e bloqueia entradas se a perda diária estourar ou
+a conexão ficar instável.
+
 ## Roadmap
 
 - [x] **Fase 0** — Core + Data Pipeline + Backtest Engine + Métricas
@@ -216,9 +234,9 @@ modelo final em todo o histórico e salva `artifacts/<modelo>/` com `manifest.js
   histórico profundo M1 desde 2015) + universo macro global (FX/metais/índices)
 - [x] **Fase 4** — Modelo universal (LightGBM + Super Cérebro Transformer com
   Asset Embeddings), painel multi-ativo, walk-forward purgado, validado no backtest
-- [~] **Fase 5** — Pacote de implantação pronto (script de treino + persistência
-  de modelos + manual de deploy Windows + arquitetura cloud). Falta: forward test
-  em demo → infra cloud (AWS/GCP) → execução live
+- [~] **Fase 5** — Implantação: treino + persistência + deploy Windows +
+  arquitetura cloud + **serviço de execução live** (loop event-driven,
+  conciliação, kill-switch). Falta: forward test em demo → cloud → operação real
 
 ## Licença
 

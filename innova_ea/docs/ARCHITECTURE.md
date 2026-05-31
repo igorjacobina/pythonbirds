@@ -155,6 +155,19 @@ transfere conhecimento entre ativos (*cross-asset learning*). O Transformer usa
 baseline robusto, Super Cérebro como modelo-alvo. As previsões são sempre
 validadas pelo MESMO backtest com custos/risco (Fase 3) e Deflated Sharpe.
 
+### L6 — `execution`
+Serviço de execução ao vivo (Fase 5), plugável sobre uma abstração de corretora
+testável sem MT5:
+- `broker.py`: `Broker` (ABC) + tipos `AccountState`/`Position`/`OrderResult`.
+- `mt5_broker.py`: adaptador MetaTrader 5 (Windows; módulo injetável p/ testes).
+- `reconciliation.py`: concilia o alvo do algo com a posição REAL na corretora →
+  delta de ordem (elimina duplicidade, órfãs e dessincronia).
+- `risk.py`: `RiskManager` — travas de margem (Fase 3) + **Kill-Switch** (perda
+  diária / instabilidade de conexão): bloqueia entradas e zera a carteira.
+- `service.py`: `ExecutionService` — loop **event-driven** por barra fechada
+  (features → modelo → risco → conciliação → ordem → auditoria do fill);
+  ``dry_run=True`` por padrão (paper mode).
+
 ## 5. Decisões técnicas
 
 | Tema            | Escolha                    | Porquê                                            |
@@ -193,8 +206,9 @@ validadas pelo MESMO backtest com custos/risco (Fase 3) e Deflated Sharpe.
   persistência de modelos (save/load), conjunto de features de produção
   (`features.presets`), universo centralizado (`innova_ea.universe`), manual de
   deploy Windows (`docs/DEPLOYMENT.md`) e arquitetura cloud
-  (`docs/CLOUD_ARCHITECTURE.md`). Falta: forward test em demo → infra cloud
-  (AWS/GCP) → execução live.
+  (`docs/CLOUD_ARCHITECTURE.md`) + **serviço de execução live** (`execution/`,
+  `scripts/run_execution.py`): loop event-driven, conciliação e kill-switch.
+  Falta: forward test em demo → infra cloud (AWS/GCP) → operação ao vivo.
 
 > A Fase 3 foi priorizada antes da 2: gestão de risco precisa estar perfeita
 > antes de minerar padrões, para que toda métrica de estratégia já nasça sob as
