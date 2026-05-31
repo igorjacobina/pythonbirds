@@ -35,10 +35,40 @@ from innova_ea.data import (
     resample,
 )
 
+# --- Universo de ativos (escopo de fundo macro global) ---
+# Nomes de símbolo variam por corretora; ajuste com --symbols se necessário.
+# Aliases comuns: US100≈NAS100, DE40≈GER40, UK100≈FTSE100, HK50≈HSI.
+FOREX_MAJORS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD"]
+METALS = ["XAUUSD", "XAGUSD"]                        # ouro, prata
+US_INDICES = ["US30", "US100", "US500"]             # Dow, NASDAQ, S&P 500
+GLOBAL_INDICES = ["DE40", "JP225", "UK100", "HK50"]  # DAX, Nikkei, FTSE, Hang Seng
+
 # EUR/USD obrigatoriamente primeiro.
-DEFAULT_MAJORS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD"]
+DEFAULT_UNIVERSE = FOREX_MAJORS + METALS + US_INDICES + GLOBAL_INDICES
+
+ASSET_CLASS: dict[str, str] = {
+    **{s: "forex" for s in FOREX_MAJORS},
+    **{s: "metal" for s in METALS},
+    **{s: "index" for s in US_INDICES + GLOBAL_INDICES},
+}
+
 DERIVED_TFS = [Timeframe.M5, Timeframe.M15, Timeframe.M30,
                Timeframe.H1, Timeframe.H4, Timeframe.D1]
+
+
+def asset_class_of(symbol: str) -> str:
+    return ASSET_CLASS.get(symbol.upper(), "forex")
+
+
+def calendar_for(symbol: str, fx_calendar: ForexCalendar) -> ForexCalendar | None:
+    """Escolhe o calendário de gaps por classe de ativo.
+
+    Forex e metais negociam ~24/5 → o calendário FX é uma boa referência.
+    Índices seguem horários de BOLSA (com pausas, variando por país); aplicar o
+    calendário FX geraria milhares de buracos falsos. Até termos calendários de
+    bolsa dedicados, a análise por grade é pulada para índices (a limpeza segue).
+    """
+    return fx_calendar if asset_class_of(symbol) in ("forex", "metal") else None
 
 
 def _parse_date(s: str) -> datetime:
@@ -46,8 +76,13 @@ def _parse_date(s: str) -> datetime:
 
 
 def ingest_symbol(source, store, calendar, symbol, start, end) -> None:
-    """Ingere M1 ano a ano (memória limitada), deriva TFs e relata limpeza/gaps."""
-    print(f"\n{'='*64}\n  {symbol} — M1 de {start.date()} a {end.date()}\n{'='*64}")
+    """Ingere M1 ano a ano (memória limitada), deriva TFs e relata limpeza/gaps.
+
+    ``calendar`` pode ser ``None`` (ex. índices) — nesse caso a análise de gaps
+    por grade de mercado é pulada, mas a limpeza defensiva é sempre aplicada.
+    """
+    cls = asset_class_of(symbol)
+    print(f"\n{'='*64}\n  {symbol} [{cls}] — M1 de {start.date()} a {end.date()}\n{'='*64}")
 
     total_raw = total_clean = 0
     cursor = start
@@ -74,10 +109,14 @@ def ingest_symbol(source, store, calendar, symbol, start, end) -> None:
         n = store.write(symbol, tf, resample(full, tf))
         print(f"  derivado {tf.value}: {n:,} barras")
 
-    # Relatório de buracos contra o calendário de mercado.
-    gaps = analyze_gaps(full, calendar, Timeframe.M1, start, end)
+    # Relatório de limpeza + (quando aplicável) buracos contra o calendário.
     print(f"\n  -- Limpeza ({total_clean:,}/{total_raw:,} barras mantidas) --")
-    print(f"  -- Gaps (M1) --\n{_indent(gaps.summary())}")
+    if calendar is not None:
+        gaps = analyze_gaps(full, calendar, Timeframe.M1, start, end)
+        print(f"  -- Gaps (M1) --\n{_indent(gaps.summary())}")
+    else:
+        print("  -- Gaps (M1): análise por grade pulada (índice usa horário de "
+              "bolsa; calendário dedicado é trabalho futuro). --")
 
 
 def _indent(text: str, prefix: str = "  ") -> str:
@@ -86,8 +125,9 @@ def _indent(text: str, prefix: str = "  ") -> str:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Ingestão MT5 → Parquet (INNOVA EA)")
-    p.add_argument("--symbols", nargs="+", default=DEFAULT_MAJORS,
-                   help="paridades (EUR/USD primeiro). Default: majors.")
+    p.add_argument("--symbols", nargs="+", default=DEFAULT_UNIVERSE,
+                   help="ativos (EUR/USD primeiro). Default: majors + metais + "
+                        "índices US e globais. Ajuste os nomes ao seu broker.")
     p.add_argument("--start", type=_parse_date, default=_parse_date("2015-01-01"))
     p.add_argument("--end", type=_parse_date, default=None,
                    help="default: agora (UTC).")
@@ -100,7 +140,7 @@ def main() -> None:
 
     end = args.end or datetime.now(timezone.utc)
     store = ParquetStore(args.store)
-    calendar = ForexCalendar(holidays=common_forex_holidays(range(args.start.year, end.year + 1)))
+    fx_calendar = ForexCalendar(holidays=common_forex_holidays(range(args.start.year, end.year + 1)))
 
     source = get_mt5_source(
         login=int(os.environ["MT5_LOGIN"]) if os.getenv("MT5_LOGIN") else None,
@@ -113,8 +153,10 @@ def main() -> None:
 
     try:
         for symbol in args.symbols:
-            ingest_symbol(source, store, calendar, symbol, args.start, end)
-        print("\n✓ Ingestão concluída. INNOVA EA está respirando dados reais.")
+            cal = calendar_for(symbol, fx_calendar)
+            ingest_symbol(source, store, cal, symbol, args.start, end)
+        print(f"\n✓ Ingestão concluída ({len(args.symbols)} ativos). "
+              "INNOVA EA está respirando dados reais.")
     finally:
         source.close()
 
