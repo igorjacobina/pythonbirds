@@ -35,7 +35,7 @@ Camadas independentes e testáveis (detalhes em [`docs/ARCHITECTURE.md`](docs/AR
 
 ```
 core      → tipos fundamentais (Instrument, Bars, Timeframe)
-data      → pipeline (MT5/CSV → limpeza/gaps → resample → ParquetStore)
+data      → pipeline (MT5/Dukascopy/HistData/CSV → limpeza/gaps → resample → ParquetStore)
 backtest  → engine realista (custos · margem/stop-out · walk-forward · métricas)
 features  → engenharia de features (volatilidade OHLC · direção · sessões)
 strategy  → sinais sem look-ahead (+ ModelStrategy)
@@ -188,6 +188,19 @@ Tratamento defensivo embutido (tudo testado em CI com um MT5 falso):
 
 Para pesquisa, ingira uma vez para Parquet e leia de lá — ordens de magnitude
 mais rápido que reconsultar o terminal.
+
+### Histórico profundo via fonte externa (dual-source)
+
+Prop firms (FTMO etc.) não servem M1 profundo. Para a base de treino densa
+(desde 2015), use um provedor dedicado e deixe o MT5 só para execução:
+
+```bash
+python scripts/ingest_external.py --source dukascopy --start 2015-01-01 --store ./data
+python scripts/ingest_external.py --source histdata --csv-dir ./histdata_raw --store ./data
+```
+
+`DukascopySource` (tick→M1 via `.bi5`, UTC) e `HistDataSource` (M1 CSV, reusa o
+`CsvSource`) gravam no mesmo `ParquetStore` que o treino lê.
 
 ## Treino e implantação (Fase 5)
 

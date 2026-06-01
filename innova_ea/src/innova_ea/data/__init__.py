@@ -9,7 +9,14 @@ from innova_ea.data.cleaning import (
 )
 from innova_ea.data.pipeline import DataPipeline, IngestionReport
 from innova_ea.data.resample import resample
-from innova_ea.data.sources import CsvSource, DataSource, SyntheticSource, get_mt5_source
+from innova_ea.data.sources import (
+    CsvSource,
+    DataSource,
+    DukascopySource,
+    HistDataSource,
+    SyntheticSource,
+    get_mt5_source,
+)
 from innova_ea.data.storage import ParquetStore
 from innova_ea.data.timeutils import server_epoch_to_utc
 
@@ -21,6 +28,8 @@ __all__ = [
     "DataSource",
     "CsvSource",
     "SyntheticSource",
+    "DukascopySource",
+    "HistDataSource",
     "get_mt5_source",
     "ForexCalendar",
     "common_forex_holidays",

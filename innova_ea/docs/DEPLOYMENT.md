@@ -76,6 +76,30 @@ python scripts\ingest_mt5.py --start 2015-01-01 --store .\data
 python -c "from innova_ea.data import ParquetStore; s=ParquetStore('./data'); print(s.available_symbols())"
 ```
 
+### 1.6 Histórico profundo via fonte externa (recomendado p/ treino)
+
+Contas demo de **prop firms (FTMO etc.) não servem histórico profundo de M1** —
+elas são mesas de execução, não provedores de dados. Para a base de treino densa
+(M1 desde 2015) dos 15 ativos, use um provedor dedicado. A FTMO/MT5 fica **só
+para a execução ao vivo** (plano separado, como em `CLOUD_ARCHITECTURE.md`).
+
+```powershell
+# Dukascopy (download direto; profundidade máxima — FX, metais e índices):
+python scripts\ingest_external.py --source dukascopy --start 2015-01-01 --store .\data
+
+# HistData (baixe antes os CSVs mensais p/ um diretório; cobre 14 dos 15 ativos —
+# Dow/US30 só existe na Dukascopy):
+python scripts\ingest_external.py --source histdata --csv-dir .\histdata_raw --store .\data
+```
+
+Ambas gravam no MESMO `ParquetStore` que o treino lê. Dica de **dupla fonte**:
+índices/Dow via Dukascopy; FX/metais por qualquer uma. Os códigos de símbolo são
+mapeados internamente (DAX=`GRXEUR`/`DEUIDXEUR`, Nikkei=`JPXJPY`/`JPNIDXJPY`, etc.).
+
+> ⚠️ Dukascopy baixa por hora (arquivos `.bi5`); a primeira carga de 11 anos é
+> longa, porém idempotente/retomável (o `ParquetStore` deduplica). Para índices,
+> confirme o código no datafeed se algum vier vazio.
+
 ---
 
 ## 2. Treinamento dos modelos (mercado real)
