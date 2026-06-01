@@ -12,13 +12,23 @@ def _utc(y, m, d, h=0):
 
 
 def test_is_trading_scalar_rules():
-    cal = ForexCalendar()  # abre dom 22h, fecha sex 22h (UTC)
+    cal = ForexCalendar()  # abre dom / fecha sex às 17:00 NY (DST-aware)
     assert cal.is_trading(_utc(2021, 1, 4, 12)) is True    # segunda
     assert cal.is_trading(_utc(2021, 1, 9, 12)) is False   # sábado
     assert cal.is_trading(_utc(2021, 1, 8, 23)) is False   # sexta após fechamento
     assert cal.is_trading(_utc(2021, 1, 8, 12)) is True     # sexta antes do fechamento
     assert cal.is_trading(_utc(2021, 1, 3, 21)) is False    # domingo antes da abertura
     assert cal.is_trading(_utc(2021, 1, 3, 23)) is True     # domingo após a abertura
+
+
+def test_dst_aware_weekly_boundary():
+    cal = ForexCalendar()
+    # Verão (EDT, UTC-4): abertura de domingo é às 21:00 UTC (= 17:00 NY).
+    assert cal.is_trading(_utc(2021, 7, 4, 20)) is False    # 16:00 NY → fechado
+    assert cal.is_trading(_utc(2021, 7, 4, 21)) is True     # 17:00 NY → abre
+    # Inverno (EST, UTC-5): abertura de domingo é às 22:00 UTC.
+    assert cal.is_trading(_utc(2021, 1, 3, 21)) is False    # 16:00 NY → fechado
+    assert cal.is_trading(_utc(2021, 1, 3, 22)) is True     # 17:00 NY → abre
 
 
 def test_is_trading_excludes_holidays():

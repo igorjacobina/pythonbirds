@@ -22,29 +22,40 @@ from innova_ea.core.enums import Timeframe
 
 @dataclass(frozen=True, slots=True)
 class ForexCalendar:
-    """Janela semanal de negociação (UTC) + feriados de mercado fechado.
+    """Janela semanal de negociação (DST-aware) + feriados de mercado fechado.
+
+    A semana do Forex é definida pelo horário de **Nova York** (abre domingo
+    17:00 NY, fecha sexta 17:00 NY). Como NY tem horário de verão, em UTC a
+    fronteira oscila entre 21:00 (EDT) e 22:00 (EST) — usar 17:00 no fuso de
+    mercado captura isso exatamente, evitando ~1h de borda mal classificada por
+    fim de semana (que, com fronteira UTC fixa, gerava milhares de falsos
+    "barras fora do horário").
 
     Attributes:
-        week_open_hour: hora UTC de abertura no domingo (default 22:00).
-        week_close_hour: hora UTC de fechamento na sexta (default 22:00).
+        market_timezone: fuso de referência do mercado (default America/New_York).
+        open_hour: hora (no fuso de mercado) de abertura no domingo (default 17).
+        close_hour: hora (no fuso de mercado) de fechamento na sexta (default 17).
         holidays: datas (UTC) de mercado totalmente fechado (ex. 25/12, 01/01).
     """
 
-    week_open_hour: int = 22
-    week_close_hour: int = 22
+    market_timezone: str = "America/New_York"
+    open_hour: int = 17
+    close_hour: int = 17
     holidays: frozenset[date] = field(default_factory=frozenset)
 
     def is_trading_expr(self) -> pl.Expr:
         """Expressão booleana Polars: True se a barra está em horário de mercado.
 
-        Convenção Polars: ``dt.weekday()`` retorna 1=segunda … 7=domingo.
+        Converte o instante (UTC) para o fuso de mercado e aplica a janela
+        semanal. ``dt.weekday()`` (Polars) retorna 1=segunda … 7=domingo.
         """
-        wd = pl.col("time").dt.weekday()
-        hour = pl.col("time").dt.hour()
+        local = pl.col("time").dt.convert_time_zone(self.market_timezone)
+        wd = local.dt.weekday()
+        hour = local.dt.hour()
         trading = (
-            (wd <= 4)  # segunda a quinta
-            | ((wd == 5) & (hour < self.week_close_hour))   # sexta antes do fechamento
-            | ((wd == 7) & (hour >= self.week_open_hour))   # domingo após a abertura
+            (wd <= 4)  # segunda a quinta (no fuso de mercado)
+            | ((wd == 5) & (hour < self.close_hour))   # sexta antes do fechamento
+            | ((wd == 7) & (hour >= self.open_hour))   # domingo após a abertura
         )
         if self.holidays:
             holiday_list = list(self.holidays)
@@ -52,18 +63,21 @@ class ForexCalendar:
         return trading
 
     def is_trading(self, dt: datetime) -> bool:
-        """Versão escalar (Python: weekday Mon=0 … Sun=6)."""
+        """Versão escalar. Holiday é avaliado pela data UTC (igual à expressão)."""
+        from zoneinfo import ZoneInfo
+
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         if dt.date() in self.holidays:
             return False
-        wd = dt.weekday()  # 0=segunda … 6=domingo
+        local = dt.astimezone(ZoneInfo(self.market_timezone))
+        wd = local.weekday()  # 0=segunda … 6=domingo
         if wd <= 3:
             return True
         if wd == 4:  # sexta
-            return dt.hour < self.week_close_hour
+            return local.hour < self.close_hour
         if wd == 6:  # domingo
-            return dt.hour >= self.week_open_hour
+            return local.hour >= self.open_hour
         return False  # sábado
 
     def trading_grid(
