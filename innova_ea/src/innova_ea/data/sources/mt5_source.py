@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import polars as pl
 
 from innova_ea.core.bars import empty_bars, validate_bars
@@ -53,6 +54,23 @@ def _add_months(dt: datetime, months: int) -> datetime:
     year = dt.year + m // 12
     month = m % 12 + 1
     return dt.replace(year=year, month=month, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def _structured_to_polars(rates) -> pl.DataFrame:
+    """Converte o array numpy ESTRUTURADO do MT5 em DataFrame Polars.
+
+    ``mt5.copy_rates_*`` devolve um numpy array estruturado (campos nomeados:
+    time, open, high, low, close, tick_volume, spread, real_volume). As versões
+    recentes do Polars NÃO aceitam isso em ``pl.from_numpy`` (gera ``AsSliceError``
+    / PanicException). Convertemos campo a campo para um dict — robusto em
+    qualquer versão e sem dependência de pandas.
+    """
+    names = rates.dtype.names
+    if names is None:  # array não-estruturado (fallback improvável)
+        return pl.from_numpy(rates)
+    # ``rates[name]`` pode ser uma view não contígua; ``np.ascontiguousarray``
+    # garante um buffer que o Polars consome com segurança.
+    return pl.DataFrame({name: np.ascontiguousarray(rates[name]) for name in names})
 
 
 class MT5Source(DataSource):
@@ -122,7 +140,7 @@ class MT5Source(DataSource):
     def _rates_to_bars(self, rates, symbol: str) -> pl.DataFrame:
         if rates is None or len(rates) == 0:
             return empty_bars()
-        df = pl.from_numpy(rates)  # campos: time, open, high, low, close, tick_volume...
+        df = _structured_to_polars(rates)  # campos: time, open, high, low, close, tick_volume...
         utc_time = server_epoch_to_utc(
             df,
             epoch_col="time",

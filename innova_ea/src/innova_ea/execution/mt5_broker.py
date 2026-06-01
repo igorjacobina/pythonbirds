@@ -14,7 +14,11 @@ import polars as pl
 from innova_ea.core.bars import empty_bars, validate_bars
 from innova_ea.core.enums import Timeframe
 from innova_ea.core.instruments import Instrument
-from innova_ea.data.sources.mt5_source import _MT5_TF_NAMES, _import_mt5
+from innova_ea.data.sources.mt5_source import (
+    _MT5_TF_NAMES,
+    _import_mt5,
+    _structured_to_polars,
+)
 from innova_ea.data.timeutils import server_epoch_to_utc
 from innova_ea.execution.broker import (
     AccountState,
@@ -124,7 +128,7 @@ class MT5Broker(Broker):
         rates = self._mt5.copy_rates_from_pos(symbol, tf, 1, count)
         if rates is None or len(rates) == 0:
             return empty_bars()
-        df = pl.from_numpy(rates)
+        df = _structured_to_polars(rates)
         utc = server_epoch_to_utc(
             df, epoch_col="time",
             server_timezone=self.server_timezone, server_utc_offset=self.server_utc_offset,

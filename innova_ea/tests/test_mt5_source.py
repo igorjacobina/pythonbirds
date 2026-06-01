@@ -10,12 +10,69 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from innova_ea.core.enums import Timeframe
-from innova_ea.data.sources.mt5_source import MT5Source
+from innova_ea.data.sources.mt5_source import MT5Source, _structured_to_polars
 
 _RATE_DTYPE = np.dtype([
     ("time", "i8"), ("open", "f8"), ("high", "f8"),
     ("low", "f8"), ("close", "f8"), ("tick_volume", "i8"),
 ])
+
+# dtype REAL retornado por mt5.copy_rates_* (8 campos; tick_volume unsigned).
+_MT5_REAL_DTYPE = np.dtype([
+    ("time", "<i8"), ("open", "<f8"), ("high", "<f8"), ("low", "<f8"),
+    ("close", "<f8"), ("tick_volume", "<u8"), ("spread", "<i4"), ("real_volume", "<u8"),
+])
+
+
+def test_structured_array_to_polars_real_mt5_dtype():
+    # Regressão: pl.from_numpy panica com array estruturado em Polars recentes.
+    rates = np.array(
+        [(1609459200, 1.10, 1.11, 1.09, 1.105, 100, 6, 0),
+         (1609459260, 1.105, 1.12, 1.10, 1.115, 120, 5, 0)],
+        dtype=_MT5_REAL_DTYPE,
+    )
+    df = _structured_to_polars(rates)
+    assert df.height == 2
+    assert {"time", "open", "high", "low", "close", "tick_volume"} <= set(df.columns)
+    assert df["close"].to_list() == [1.105, 1.115]
+
+
+class FakeMT5Real(object):
+    """MT5 falso que devolve o dtype REAL de 8 campos (com spread/real_volume)."""
+
+    TIMEFRAME_M1 = 1
+
+    def __init__(self, offset_hours=0):
+        self.offset_hours = offset_hours
+
+    def initialize(self, **kwargs):
+        return True
+
+    def last_error(self):
+        return (0, "ok")
+
+    def symbol_select(self, symbol, enable):
+        return True
+
+    def shutdown(self):
+        pass
+
+    def copy_rates_range(self, symbol, timeframe, dfrom, dto):
+        rows, t = [], dfrom
+        while t <= dto:
+            epoch = int(t.timestamp()) + self.offset_hours * 3600
+            rows.append((epoch, 1.10, 1.11, 1.09, 1.105, 100, 6, 0))
+            t += timedelta(hours=1)
+        return np.array(rows, dtype=_MT5_REAL_DTYPE)
+
+
+def test_fetch_with_real_dtype_does_not_panic():
+    src = MT5Source(mt5_module=FakeMT5Real(offset_hours=0), server_utc_offset=0)
+    bars = src.fetch("EURUSD", Timeframe.M1,
+                     datetime(2021, 1, 4, tzinfo=timezone.utc),
+                     datetime(2021, 1, 5, tzinfo=timezone.utc))
+    assert bars.height == 24
+    assert bars.columns == ["time", "open", "high", "low", "close", "volume"]
 
 
 class FakeMT5:
