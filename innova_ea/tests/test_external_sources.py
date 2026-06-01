@@ -66,6 +66,77 @@ def test_dukascopy_unknown_symbol_raises():
                   datetime(2020, 1, 2, tzinfo=timezone.utc))
 
 
+def test_dukascopy_fetch_skips_failed_hours_without_crashing():
+    raw = pack_bi5([(0, 110010, 109990, 1.0, 1.0)])
+
+    def flaky_dl(url):
+        # Só a hora 10h tem dado; as demais "falham" (None) — não pode quebrar.
+        return raw if url.endswith("/10h_ticks.bi5") else None
+
+    src = DukascopySource(downloader=flaky_dl)
+    bars = src.fetch("EURUSD", Timeframe.M1,
+                     datetime(2020, 1, 6, 8, tzinfo=timezone.utc),
+                     datetime(2020, 1, 6, 12, tzinfo=timezone.utc))
+    assert bars.height == 1
+    assert bars["time"][0] == datetime(2020, 1, 6, 10, tzinfo=timezone.utc)
+
+
+def test_make_downloader_retries_then_succeeds(monkeypatch):
+    import urllib.request
+
+    from innova_ea.data.sources import dukascopy as dk
+
+    calls = {"n": 0}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"OK"
+
+    def fake_urlopen(req, timeout=None):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise TimeoutError("read timed out")
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    dl = dk._make_downloader(timeout=1, max_retries=4, retry_wait=0)
+    assert dl("https://x/10h_ticks.bi5") == b"OK"
+    assert calls["n"] == 3                      # falhou 2x, sucesso na 3ª
+
+
+def test_make_downloader_gives_up_returns_none(monkeypatch):
+    import urllib.request
+
+    from innova_ea.data.sources import dukascopy as dk
+
+    def always_timeout(req, timeout=None):
+        raise TimeoutError("read timed out")
+
+    monkeypatch.setattr(urllib.request, "urlopen", always_timeout)
+    dl = dk._make_downloader(max_retries=3, retry_wait=0)
+    assert dl("https://x/10h_ticks.bi5") is None  # desiste, NÃO levanta
+
+
+def test_make_downloader_404_returns_none(monkeypatch):
+    import urllib.error
+    import urllib.request
+
+    from innova_ea.data.sources import dukascopy as dk
+
+    def not_found(req, timeout=None):
+        raise urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", not_found)
+    dl = dk._make_downloader(max_retries=3, retry_wait=0)
+    assert dl("https://x/10h_ticks.bi5") is None
+
+
 # --------------------------------------------------------------- HistData / CSV
 _HISTDATA_ROWS = (
     "20200106 100000;1.1000;1.1010;1.0990;1.1005;0\n"

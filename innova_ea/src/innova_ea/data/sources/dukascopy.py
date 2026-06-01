@@ -88,20 +88,43 @@ def ticks_to_frame(ticks: np.ndarray, hour_start: datetime, price_scale: float) 
     )
 
 
-def _default_downloader(url: str) -> bytes | None:
-    """Baixa um ``.bi5`` (None em 404/erro). Substituível em testes."""
+def _make_downloader(
+    timeout: float = 30.0, max_retries: int = 4, retry_wait: float = 1.5
+) -> Callable[[str], bytes | None]:
+    """Cria um downloader RESILIENTE de ``.bi5``.
+
+    Trata 404 (→ None, sem dados), e re-tenta com backoff em timeouts/erros de
+    rede (``TimeoutError``/``URLError``/``OSError``). Após esgotar as tentativas,
+    retorna None (pula a hora) — assim uma hora lenta NÃO derruba a ingestão; o
+    ``ParquetStore`` é idempotente e completa o que faltar numa nova execução.
+    """
+    import time
     import urllib.error
     import urllib.request
 
-    try:
-        with urllib.request.urlopen(url, timeout=30) as resp:  # noqa: S310
-            return resp.read()
-    except urllib.error.HTTPError as exc:  # pragma: no cover - rede
-        if exc.code == 404:
-            return None
-        raise
-    except urllib.error.URLError:  # pragma: no cover - rede
-        return None
+    headers = {"User-Agent": "Mozilla/5.0 (innova_ea data ingest)"}
+
+    def download(url: str) -> bytes | None:
+        for attempt in range(max_retries):
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+                    return resp.read()
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    return None            # fim de semana/feriado/sem dados
+            except (urllib.error.URLError, TimeoutError, OSError):
+                pass                        # transitório → re-tenta
+            if attempt < max_retries - 1:
+                time.sleep(retry_wait * (attempt + 1))
+        return None                         # esgotou tentativas → pula a hora
+
+    return download
+
+
+# Downloader padrão (compatibilidade); use _make_downloader p/ parametrizar.
+def _default_downloader(url: str) -> bytes | None:  # pragma: no cover - rede
+    return _make_downloader()(url)
 
 
 class DukascopySource(DataSource):
@@ -109,8 +132,10 @@ class DukascopySource(DataSource):
 
     Args:
         instruments: override do mapa símbolo → (código, escala).
-        downloader: função ``url -> bytes|None`` (injetável p/ testes).
-        max_workers: downloads horários concorrentes por requisição.
+        downloader: função ``url -> bytes|None`` (injetável p/ testes); se ``None``,
+            usa um downloader resiliente com ``timeout``/``max_retries``.
+        max_workers: downloads horários CONCORRENTES por requisição.
+        timeout/max_retries/retry_wait: política do downloader padrão.
     """
 
     def __init__(
@@ -119,9 +144,12 @@ class DukascopySource(DataSource):
         instruments: dict[str, tuple[str, float]] | None = None,
         downloader: Callable[[str], bytes | None] | None = None,
         max_workers: int = 8,
+        timeout: float = 30.0,
+        max_retries: int = 4,
+        retry_wait: float = 1.5,
     ) -> None:
         self.instruments = instruments or DUKASCOPY_INSTRUMENTS
-        self.downloader = downloader or _default_downloader
+        self.downloader = downloader or _make_downloader(timeout, max_retries, retry_wait)
         self.max_workers = max_workers
 
     def _url(self, code: str, dt: datetime) -> str:
@@ -134,6 +162,18 @@ class DukascopySource(DataSource):
             yield cur
             cur += timedelta(hours=1)
 
+    @staticmethod
+    def _aggregate(ticks_frame: pl.DataFrame, timeframe: Timeframe) -> pl.DataFrame:
+        return ticks_frame.group_by_dynamic(
+            "time", every=timeframe.polars_every, closed="left", label="left"
+        ).agg(
+            pl.col("mid").first().alias("open"),
+            pl.col("mid").max().alias("high"),
+            pl.col("mid").min().alias("low"),
+            pl.col("mid").last().alias("close"),
+            pl.col("volume").sum().alias("volume"),
+        )
+
     def fetch(
         self,
         symbol: str,
@@ -141,6 +181,8 @@ class DukascopySource(DataSource):
         start: datetime,
         end: datetime,
     ) -> pl.DataFrame:
+        from concurrent.futures import ThreadPoolExecutor
+
         if symbol.upper() not in self.instruments:
             raise ValueError(f"símbolo '{symbol}' sem mapeamento Dukascopy")
         code, scale = self.instruments[symbol.upper()]
@@ -150,29 +192,29 @@ class DukascopySource(DataSource):
             end = end.replace(tzinfo=timezone.utc)
 
         hours = list(self._hours(start, end))
-        frames: list[pl.DataFrame] = []
-        for hour in hours:
-            raw = self.downloader(self._url(code, hour))
+        # Downloads CONCORRENTES (IO-bound); uma hora lenta não bloqueia o resto.
+        with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            raws = list(pool.map(lambda h: self.downloader(self._url(code, h)), hours))
+
+        # Agrega CADA hora a M1 já (memória-segura: não acumula todos os ticks de
+        # anos). Para M1, os buckets de minuto não cruzam a fronteira da hora.
+        bars_list: list[pl.DataFrame] = []
+        for hour, raw in zip(hours, raws):
             if not raw:
                 continue                      # fim de semana/feriado/sem dados
             ticks = decode_bi5(raw)
-            if ticks.shape[0]:
-                frames.append(ticks_to_frame(ticks, hour, scale))
+            if ticks.shape[0] == 0:
+                continue
+            frame = ticks_to_frame(ticks, hour, scale)
+            bars_list.append(self._aggregate(frame, timeframe))
 
-        if not frames:
+        if not bars_list:
             return empty_bars()
 
-        ticks_df = pl.concat(frames).sort("time")
         bars = (
-            ticks_df.group_by_dynamic("time", every=timeframe.polars_every, closed="left", label="left")
-            .agg(
-                pl.col("mid").first().alias("open"),
-                pl.col("mid").max().alias("high"),
-                pl.col("mid").min().alias("low"),
-                pl.col("mid").last().alias("close"),
-                pl.col("volume").sum().alias("volume"),
-            )
+            pl.concat(bars_list)
             .filter((pl.col("time") >= start) & (pl.col("time") < end))
+            .unique(subset=["time"], keep="last")
             .sort("time")
         )
         return validate_bars(bars, symbol=symbol)
