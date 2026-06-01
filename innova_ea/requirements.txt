@@ -3,6 +3,7 @@ polars>=0.20
 numpy>=1.24
 numba>=0.58
 pyarrow>=14
+pandas>=2.0            # intermediário p/ converter arrays estruturados do MT5
 lightgbm>=4.0          # baseline universal (Fase 4)
 
 # Super Cérebro (Transformer) — opcional, GPU recomendado para treino real.

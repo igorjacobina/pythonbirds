@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import numpy as np
 import polars as pl
 
 from innova_ea.core.bars import empty_bars, validate_bars
@@ -60,17 +59,20 @@ def _structured_to_polars(rates) -> pl.DataFrame:
     """Converte o array numpy ESTRUTURADO do MT5 em DataFrame Polars.
 
     ``mt5.copy_rates_*`` devolve um numpy array estruturado (campos nomeados:
-    time, open, high, low, close, tick_volume, spread, real_volume). As versões
-    recentes do Polars NÃO aceitam isso em ``pl.from_numpy`` (gera ``AsSliceError``
-    / PanicException). Convertemos campo a campo para um dict — robusto em
-    qualquer versão e sem dependência de pandas.
+    time, open, high, low, close, tick_volume, spread, real_volume). Construir o
+    DataFrame direto desse array (``pl.from_numpy`` ou dict de views numpy) gera
+    ``AsSliceError``/PanicException em versões recentes do Polars — em especial
+    pelos campos inteiros sem sinal (uint64) e int32.
+
+    Caminho robusto entre versões: passar pelo **pandas** como intermediário
+    (``pd.DataFrame(rates)`` → ``pl.from_pandas``), que normaliza os dtypes.
     """
     names = rates.dtype.names
     if names is None:  # array não-estruturado (fallback improvável)
         return pl.from_numpy(rates)
-    # ``rates[name]`` pode ser uma view não contígua; ``np.ascontiguousarray``
-    # garante um buffer que o Polars consome com segurança.
-    return pl.DataFrame({name: np.ascontiguousarray(rates[name]) for name in names})
+    import pandas as pd
+
+    return pl.from_pandas(pd.DataFrame(rates))
 
 
 class MT5Source(DataSource):
