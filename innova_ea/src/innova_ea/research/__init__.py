@@ -16,6 +16,11 @@ from innova_ea.research.metalabeling import (
     session_breakout_primary,
 )
 from innova_ea.research.models import LightGBMUniversal, UniversalModel, get_super_brain
+from innova_ea.research.straddle import (
+    build_straddle_panel,
+    straddle_backtest,
+    straddle_outcomes,
+)
 from innova_ea.research.overfitting import (
     deannualize_sharpe,
     deflated_sharpe_ratio,
@@ -51,6 +56,9 @@ __all__ = [
     "meta_labels",
     "donchian_breakout_primary",
     "session_breakout_primary",
+    "build_straddle_panel",
+    "straddle_outcomes",
+    "straddle_backtest",
     "deannualize_sharpe",
     "deflated_sharpe_ratio",
     "expected_max_sharpe",
