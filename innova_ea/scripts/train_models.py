@@ -104,8 +104,15 @@ def evaluate_walk_forward(panel, feature_set, bars_by, kind, *, timeframe,
             oos_sharpes.append(sr)
         print(f"  fold {win.index}: acc={acc:.3f} | Sharpe OOS médio={np.mean(fold_sr):+.2f}")
 
+    # DSR sobre o AGREGADO da estratégia (não o melhor fold sortudo), com
+    # n_obs = nº de ensaios — evita inflar o valor com o tamanho do painel.
     trial_sr = [deannualize_sharpe(s, ppy) for s in oos_sharpes]
-    dsr = deflated_sharpe_ratio(trial_sr, n_obs=panel.frame.height) if trial_sr else float("nan")
+    agg = float(np.mean(oos_sharpes)) if oos_sharpes else 0.0
+    dsr = (
+        deflated_sharpe_ratio(trial_sr, n_obs=len(trial_sr),
+                              selected_sharpe=deannualize_sharpe(agg, ppy))
+        if len(trial_sr) >= 2 else float("nan")
+    )
     return {
         "n_trials": len(oos_sharpes),
         "mean_oos_sharpe": float(np.mean(oos_sharpes)) if oos_sharpes else float("nan"),

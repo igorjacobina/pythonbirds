@@ -95,6 +95,9 @@ def main() -> None:
                            horizon=args.max_horizon, embargo=args.max_horizon)
     ppy = periods_per_year(tf)
     oos_sharpes: list[float] = []
+    approved_total = 0
+    signals_total = 0
+    prec_lifts: list[float] = []
 
     print(f"\nWalk-forward purgado | primária={args.primary} | threshold P(win)={args.threshold}\n")
     for train_df, test_df, win in wf.split(panel.frame):
@@ -102,7 +105,12 @@ def main() -> None:
         # Precisão do filtro: dos sinais que o modelo aprovaria (P>=thr), quantos venceriam?
         pw = model.predict_meta(test_df)
         approved = pw >= args.threshold
-        prec = float(test_df["label"].to_numpy()[approved].mean()) if approved.any() else float("nan")
+        y = test_df["label"].to_numpy()
+        prec = float(y[approved].mean()) if approved.any() else float("nan")
+        approved_total += int(approved.sum())
+        signals_total += int(test_df.height)
+        if approved.any():
+            prec_lifts.append(prec - float(y.mean()))   # ganho sobre o base win-rate do fold
 
         t0, t1 = test_df["time"].min(), test_df["time"].max()
         fold_sr = []
@@ -121,11 +129,29 @@ def main() -> None:
               f"| Sharpe OOS médio={np.mean(fold_sr):+.2f}")
 
     sr = np.array(oos_sharpes)
+    agg = float(sr.mean()) if sr.size else 0.0
+    approved_frac = (approved_total / signals_total) if signals_total else 0.0
+    mean_lift = float(np.mean(prec_lifts)) if prec_lifts else float("nan")
+    # DSR HONESTO: mede o AGREGADO da estratégia (não o melhor fold sortudo),
+    # com n_obs = nº de ensaios (não o tamanho do painel, que inflava o valor).
     trial = [deannualize_sharpe(s, ppy) for s in oos_sharpes]
-    dsr = deflated_sharpe_ratio(trial, n_obs=panel.frame.height) if trial else float("nan")
+    if len(trial) >= 2 and approved_total > 0:
+        dsr = deflated_sharpe_ratio(
+            trial, n_obs=len(trial), selected_sharpe=deannualize_sharpe(agg, ppy)
+        )
+    else:
+        dsr = float("nan")
+
     print(f"\n== Agregado OOS ({sr.size} ensaios) ==")
-    print(f"  Sharpe OOS médio : {sr.mean():+.2f}  (positivos {np.mean(sr > 0):.0%})")
-    print(f"  Deflated Sharpe  : {dsr:.1%}")
+    print(f"  Trades aprovados : {approved_total:,} de {signals_total:,} sinais "
+          f"({approved_frac:.2%})")
+    print(f"  Ganho de precisão: {mean_lift:+.3f} (precisão dos aprovados − base win-rate)")
+    print(f"  Sharpe OOS médio : {agg:+.2f}  (positivos {np.mean(sr > 0):.0%})")
+    if approved_total == 0:
+        print("  Deflated Sharpe  : N/A — o filtro ABSTEVE-SE (não aprovou trades);"
+              " sem edge filtrável neste setup.")
+    else:
+        print(f"  Deflated Sharpe  : {dsr:.1%}  (sobre o AGREGADO, não o melhor fold)")
 
     final = MetaLabelModel(panel).fit(panel.frame)
     dest = Path(args.out) / "metalabel"
