@@ -51,13 +51,18 @@ def build_source(args):
     raise SystemExit(f"fonte desconhecida: {args.source}")
 
 
-def ingest_symbol(source, store, fx_calendar, symbol, start, end) -> None:
+def ingest_symbol(source, store, fx_calendar, symbol, start, end, *, resume=True) -> None:
     cls = asset_class_of(symbol)
     print(f"\n{'='*64}\n  {symbol} [{cls}] — M1 de {start.date()} a {end.date()}\n{'='*64}")
     total = 0
     cursor = start
     while cursor < end:
         year_end = min(datetime(cursor.year + 1, 1, 1, tzinfo=timezone.utc), end)
+        # Retomada: cada ano é gravado atomicamente; se já existe, pula o download.
+        if resume and store.read(symbol, Timeframe.M1, cursor, year_end).height > 0:
+            print(f"  {cursor.year}: já no store — pulando (resume)")
+            cursor = year_end
+            continue
         raw = source.fetch(symbol, Timeframe.M1, cursor, year_end)
         if raw.height:
             clean, _ = clean_bars(raw)
@@ -74,7 +79,8 @@ def ingest_symbol(source, store, fx_calendar, symbol, start, end) -> None:
         return
     for tf in DERIVED_TFS:
         store.write(symbol, tf, resample(full, tf))
-    print(f"  derivados M5..D1 ok | total M1: {total:,}")
+    print(f"  derivados M5..D1 ok | total M1 no store: {full.height:,}")
+
 
     cal = None if is_exchange_traded(symbol) else fx_calendar
     if cal is not None:
@@ -93,6 +99,8 @@ def main() -> None:
     ap.add_argument("--store", default="./data")
     ap.add_argument("--csv-dir", default=None, help="diretório dos CSVs (HistData).")
     ap.add_argument("--max-workers", type=int, default=8, help="downloads concorrentes (Dukascopy).")
+    ap.add_argument("--force", action="store_true",
+                    help="re-baixa anos já presentes no store (desliga a retomada).")
     args = ap.parse_args()
 
     end = args.end or datetime.now(timezone.utc)
@@ -105,7 +113,8 @@ def main() -> None:
             print(f"\n  pulando {symbol}: sem mapeamento na fonte '{args.source}' "
                   f"(use a outra fonte para este ativo).")
             continue
-        ingest_symbol(source, store, fx_calendar, symbol, args.start, end)
+        ingest_symbol(source, store, fx_calendar, symbol, args.start, end,
+                      resume=not args.force)
 
     print(f"\n✓ Ingestão externa concluída (fonte={args.source}).")
 
