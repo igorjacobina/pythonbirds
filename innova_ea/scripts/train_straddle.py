@@ -94,6 +94,7 @@ def main() -> None:
     from collections import defaultdict
     per_asset_sr: dict[str, list[float]] = defaultdict(list)
     per_asset_trades: dict[str, int] = defaultdict(int)
+    fold_means: list[float] = []
 
     print(f"\nWalk-forward purgado | threshold P(lucro)={args.threshold}\n")
     for train_df, test_df, win in wf.split(panel.frame):
@@ -126,6 +127,7 @@ def main() -> None:
             per_asset_trades[s] += int(trade_pnls.size)
         print(f"  fold {win.index}: precisão_aprovados={prec:.3f} ({approved.mean():.1%}) "
               f"| Sharpe OOS médio={np.mean(fold_sr):+.2f}")
+        fold_means.append(float(np.mean(fold_sr)) if fold_sr else 0.0)
 
     sr = np.array(oos_sharpes)
     agg = float(sr.mean()) if sr.size else 0.0
@@ -148,6 +150,17 @@ def main() -> None:
         print(f"    {s:<8} {m:+.2f}  | {per_asset_trades.get(s, 0):>6,} trades")
     print(f"  Ativos com Sharpe>0: {n_pos}/{len(bars_by)} "
           f"(edge {'AMPLO' if n_pos >= 0.7 * len(bars_by) else 'CONCENTRADO'})")
+
+    # Significância LIMPA: consistência entre janelas OOS (folds quase-independentes).
+    fm = np.array(fold_means)
+    if fm.size > 1 and fm.std(ddof=1) > 0:
+        from statistics import NormalDist
+        tstat = fm.mean() / (fm.std(ddof=1) / np.sqrt(fm.size))
+        pval = 2.0 * (1.0 - NormalDist().cdf(abs(tstat)))
+        print(f"\n  -- Consistência entre folds --")
+        print(f"  Folds positivos  : {int((fm > 0).sum())}/{fm.size}")
+        print(f"  Sharpe/fold médio: {fm.mean():+.2f} (dp {fm.std(ddof=1):.2f})")
+        print(f"  t-stat (>0)      : {tstat:+.2f}  (p≈{pval:.4f})")
 
     final = MetaLabelModel(panel).fit(panel.frame)
     dest = Path(args.out) / "straddle"
