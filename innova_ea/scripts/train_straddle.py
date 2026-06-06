@@ -91,6 +91,9 @@ def main() -> None:
     ppy = periods_per_year(tf)
     oos_sharpes: list[float] = []
     armed_total = 0
+    from collections import defaultdict
+    per_asset_sr: dict[str, list[float]] = defaultdict(list)
+    per_asset_trades: dict[str, int] = defaultdict(int)
 
     print(f"\nWalk-forward purgado | threshold P(lucro)={args.threshold}\n")
     for train_df, test_df, win in wf.split(panel.frame):
@@ -119,6 +122,8 @@ def main() -> None:
             rep = compute_metrics(equity, in_trade, trade_pnls, tf, 10_000.0)
             fold_sr.append(rep.sharpe)
             oos_sharpes.append(rep.sharpe)
+            per_asset_sr[s].append(rep.sharpe)
+            per_asset_trades[s] += int(trade_pnls.size)
         print(f"  fold {win.index}: precisão_aprovados={prec:.3f} ({approved.mean():.1%}) "
               f"| Sharpe OOS médio={np.mean(fold_sr):+.2f}")
 
@@ -132,6 +137,17 @@ def main() -> None:
     print(f"  Straddles armados: {armed_total:,}")
     print(f"  Sharpe OOS médio : {agg:+.2f}  (positivos {np.mean(sr > 0):.0%})")
     print(f"  Deflated Sharpe  : {dsr:.1%}" if armed_total else "  Deflated Sharpe  : N/A (sem trades)")
+
+    # Robustez: o edge é AMPLO (vários ativos) ou concentrado em poucos sortudos?
+    print("\n  -- Por ativo (Sharpe OOS médio | nº trades) --")
+    n_pos = 0
+    for s in bars_by:
+        srs = per_asset_sr.get(s, [])
+        m = float(np.mean(srs)) if srs else 0.0
+        n_pos += 1 if m > 0 else 0
+        print(f"    {s:<8} {m:+.2f}  | {per_asset_trades.get(s, 0):>6,} trades")
+    print(f"  Ativos com Sharpe>0: {n_pos}/{len(bars_by)} "
+          f"(edge {'AMPLO' if n_pos >= 0.7 * len(bars_by) else 'CONCENTRADO'})")
 
     final = MetaLabelModel(panel).fit(panel.frame)
     dest = Path(args.out) / "straddle"
