@@ -43,7 +43,11 @@ def _date(s: str) -> datetime:
 
 def build_source(args):
     if args.source == "dukascopy":
-        return DukascopySource(max_workers=args.max_workers), set(DUKASCOPY_INSTRUMENTS)
+        src = DukascopySource(
+            max_workers=args.max_workers, timeout=args.timeout,
+            max_retries=args.max_retries, retry_wait=args.retry_wait,
+        )
+        return src, set(DUKASCOPY_INSTRUMENTS)
     if args.source == "histdata":
         if not args.csv_dir:
             raise SystemExit("--csv-dir é obrigatório para --source histdata")
@@ -55,6 +59,7 @@ def ingest_symbol(source, store, fx_calendar, symbol, start, end, *, resume=True
     cls = asset_class_of(symbol)
     print(f"\n{'='*64}\n  {symbol} [{cls}] — M1 de {start.date()} a {end.date()}\n{'='*64}")
     total = 0
+    fetched_any = False
     cursor = start
     while cursor < end:
         year_end = min(datetime(cursor.year + 1, 1, 1, tzinfo=timezone.utc), end)
@@ -68,10 +73,16 @@ def ingest_symbol(source, store, fx_calendar, symbol, start, end, *, resume=True
             clean, _ = clean_bars(raw)
             n = store.write(symbol, Timeframe.M1, clean)
             total += clean.height
+            fetched_any = True
             print(f"  {cursor.year}: {clean.height:>8,} barras → gravadas {n:,}")
         else:
             print(f"  {cursor.year}: sem dados")
         cursor = year_end
+
+    # Ativo 100% baixado e já derivado numa execução anterior → pula tudo (rápido).
+    if resume and not fetched_any and store.read(symbol, Timeframe.H1, start, end).height > 0:
+        print("  ✓ já completo (M1 + derivados) — nada a fazer.")
+        return
 
     full = store.read(symbol, Timeframe.M1, start, end)
     if full.height == 0:
@@ -99,6 +110,10 @@ def main() -> None:
     ap.add_argument("--store", default="./data")
     ap.add_argument("--csv-dir", default=None, help="diretório dos CSVs (HistData).")
     ap.add_argument("--max-workers", type=int, default=8, help="downloads concorrentes (Dukascopy).")
+    ap.add_argument("--timeout", type=float, default=20.0,
+                    help="prazo-limite ESTRITO por requisição em segundos (Dukascopy).")
+    ap.add_argument("--max-retries", type=int, default=4, help="tentativas por arquivo.")
+    ap.add_argument("--retry-wait", type=float, default=2.0, help="espera-base do backoff (s).")
     ap.add_argument("--force", action="store_true",
                     help="re-baixa anos já presentes no store (desliga a retomada).")
     args = ap.parse_args()

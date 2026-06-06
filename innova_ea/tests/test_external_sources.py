@@ -123,6 +123,28 @@ def test_make_downloader_gives_up_returns_none(monkeypatch):
     assert dl("https://x/10h_ticks.bi5") is None  # desiste, NÃO levanta
 
 
+def test_make_downloader_hard_deadline_does_not_hang(monkeypatch):
+    # Requisição "travada" (urlopen dorme muito): o prazo DURO deve abortar e
+    # retornar None rapidamente, sem congelar — o cenário do DE30 2023-01.
+    import time
+    import urllib.request
+
+    from innova_ea.data.sources import dukascopy as dk
+
+    def hanging_urlopen(req, timeout=None):
+        time.sleep(30)            # simula DNS/TLS/trickle travado (thread daemon)
+        raise AssertionError("não deveria chegar aqui")
+
+    monkeypatch.setattr(urllib.request, "urlopen", hanging_urlopen)
+    dl = dk._make_downloader(timeout=0.1, max_retries=2, retry_wait=0.0, grace=0.1)
+
+    t0 = time.monotonic()
+    result = dl("https://x/10h_ticks.bi5")
+    elapsed = time.monotonic() - t0
+    assert result is None
+    assert elapsed < 5.0          # NÃO congelou (prazo duro funcionou)
+
+
 def test_make_downloader_404_returns_none(monkeypatch):
     import urllib.error
     import urllib.request

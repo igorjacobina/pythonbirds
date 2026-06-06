@@ -89,32 +89,59 @@ def ticks_to_frame(ticks: np.ndarray, hour_start: datetime, price_scale: float) 
 
 
 def _make_downloader(
-    timeout: float = 30.0, max_retries: int = 4, retry_wait: float = 1.5
+    timeout: float = 20.0, max_retries: int = 4, retry_wait: float = 2.0,
+    grace: float = 3.0,
 ) -> Callable[[str], bytes | None]:
-    """Cria um downloader RESILIENTE de ``.bi5``.
+    """Cria um downloader RESILIENTE de ``.bi5`` com PRAZO-LIMITE DURO.
 
-    Trata 404 (→ None, sem dados), e re-tenta com backoff em timeouts/erros de
-    rede (``TimeoutError``/``URLError``/``OSError``). Após esgotar as tentativas,
-    retorna None (pula a hora) — assim uma hora lenta NÃO derruba a ingestão; o
-    ``ParquetStore`` é idempotente e completa o que faltar numa nova execução.
+    O ``timeout`` do ``urlopen`` cobre só operações de socket — NÃO cobre travas de
+    DNS, handshake TLS ou dados em *trickle*, que podem congelar a requisição para
+    sempre (sintoma: tela preta por dias, sem erro). Para blindar isso, cada
+    download roda numa thread *daemon* com ``join(timeout + grace)``: se estourar o
+    prazo de relógio de parede, FORÇAMOS o erro, abandonamos a thread (que morre
+    sozinha quando o socket expira) e aplicamos retry com backoff.
+
+    Trata 404 → None (sem dados). Após esgotar as tentativas, retorna None (pula a
+    hora); o ``ParquetStore`` é idempotente e completa o que faltar na reexecução.
     """
+    import threading
     import time
     import urllib.error
     import urllib.request
 
     headers = {"User-Agent": "Mozilla/5.0 (innova_ea data ingest)"}
+    deadline = timeout + grace
+
+    def _fetch_with_deadline(url: str) -> bytes | None:
+        box: dict = {}
+
+        def worker():
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+                    box["data"] = resp.read()
+            except BaseException as exc:  # noqa: BLE001 - propaga p/ a thread-mãe
+                box["err"] = exc
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        t.join(deadline)
+        if t.is_alive():
+            # Prazo duro estourado (DNS/TLS/trickle): abandona a thread daemon.
+            raise TimeoutError(f"prazo de {deadline:.0f}s estourado em {url}")
+        if "err" in box:
+            raise box["err"]
+        return box.get("data")
 
     def download(url: str) -> bytes | None:
         for attempt in range(max_retries):
             try:
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-                    return resp.read()
+                return _fetch_with_deadline(url)
             except urllib.error.HTTPError as exc:
                 if exc.code == 404:
                     return None            # fim de semana/feriado/sem dados
             except (urllib.error.URLError, TimeoutError, OSError):
-                pass                        # transitório → re-tenta
+                pass                        # transitório/trava → re-tenta
             if attempt < max_retries - 1:
                 time.sleep(retry_wait * (attempt + 1))
         return None                         # esgotou tentativas → pula a hora
@@ -144,12 +171,13 @@ class DukascopySource(DataSource):
         instruments: dict[str, tuple[str, float]] | None = None,
         downloader: Callable[[str], bytes | None] | None = None,
         max_workers: int = 8,
-        timeout: float = 30.0,
+        timeout: float = 20.0,
         max_retries: int = 4,
-        retry_wait: float = 1.5,
+        retry_wait: float = 2.0,
+        grace: float = 3.0,
     ) -> None:
         self.instruments = instruments or DUKASCOPY_INSTRUMENTS
-        self.downloader = downloader or _make_downloader(timeout, max_retries, retry_wait)
+        self.downloader = downloader or _make_downloader(timeout, max_retries, retry_wait, grace)
         self.max_workers = max_workers
 
     def _url(self, code: str, dt: datetime) -> str:
