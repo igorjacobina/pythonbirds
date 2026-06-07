@@ -22,6 +22,14 @@ from innova_ea.research.straddle import (
     straddle_backtest,
     straddle_outcomes,
 )
+from innova_ea.research.pairs import (
+    PairConfig,
+    align_log_prices,
+    estimate_beta,
+    pairs_backtest,
+    pairs_signal,
+    spread_zscore,
+)
 from innova_ea.research.overfitting import (
     deannualize_sharpe,
     deflated_sharpe_ratio,
@@ -58,6 +66,12 @@ __all__ = [
     "donchian_breakout_primary",
     "session_breakout_primary",
     "reversal_at_extreme_primary",
+    "PairConfig",
+    "align_log_prices",
+    "estimate_beta",
+    "spread_zscore",
+    "pairs_signal",
+    "pairs_backtest",
     "build_straddle_panel",
     "straddle_outcomes",
     "straddle_backtest",
