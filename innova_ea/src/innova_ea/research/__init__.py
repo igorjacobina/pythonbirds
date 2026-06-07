@@ -13,6 +13,7 @@ from innova_ea.research.metalabeling import (
     build_metalabel_panel,
     donchian_breakout_primary,
     meta_labels,
+    reversal_at_extreme_primary,
     session_breakout_primary,
 )
 from innova_ea.research.models import LightGBMUniversal, UniversalModel, get_super_brain
@@ -56,6 +57,7 @@ __all__ = [
     "meta_labels",
     "donchian_breakout_primary",
     "session_breakout_primary",
+    "reversal_at_extreme_primary",
     "build_straddle_panel",
     "straddle_outcomes",
     "straddle_backtest",

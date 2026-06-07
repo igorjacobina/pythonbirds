@@ -33,6 +33,7 @@ from innova_ea.research import (
     deannualize_sharpe,
     deflated_sharpe_ratio,
     donchian_breakout_primary,
+    reversal_at_extreme_primary,
     session_breakout_primary,
 )
 from innova_ea.universe import DEFAULT_UNIVERSE, asset_class_of
@@ -43,6 +44,8 @@ def build_primary(args):
         return donchian_breakout_primary(args.donchian_lookback)
     if args.primary == "session":
         return session_breakout_primary(args.session_prefix)
+    if args.primary == "reversal":
+        return reversal_at_extreme_primary(args.donchian_lookback)
     raise SystemExit(f"primária desconhecida: {args.primary}")
 
 
@@ -67,7 +70,7 @@ def main() -> None:
                     default=datetime(2015, 1, 1, tzinfo=timezone.utc))
     ap.add_argument("--end", type=lambda s: datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc),
                     default=None)
-    ap.add_argument("--primary", choices=["donchian", "session"], default="donchian")
+    ap.add_argument("--primary", choices=["donchian", "session", "reversal"], default="donchian")
     ap.add_argument("--donchian-lookback", type=int, default=20)
     ap.add_argument("--session-prefix", default="london")
     ap.add_argument("--max-horizon", type=int, default=24)

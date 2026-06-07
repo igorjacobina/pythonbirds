@@ -63,6 +63,53 @@ def session_breakout_primary(prefix: str = "london") -> Primary:
     return primary
 
 
+def reversal_at_extreme_primary(
+    lookback: int = 20, top_pct: float = 0.8, bottom_pct: float = 0.2,
+    pin_ratio: float = 2.0,
+) -> Primary:
+    """Padrão de VELA de reversão numa REGIÃO de topo/fundo (sua tese original).
+
+    Emite o lado da aposta de reversão:
+      * **fundo** (preço no fundo do range recente) + vela de reversão de ALTA
+        (martelo/engolfo de alta) → +1 (compra);
+      * **topo** (preço no topo do range) + vela de reversão de BAIXA
+        (estrela cadente/engolfo de baixa) → -1 (venda);
+      * senão 0.
+
+    "Topo/fundo" = posição do close dentro do range das últimas ``lookback`` barras
+    (>= ``top_pct`` é topo; <= ``bottom_pct`` é fundo). Tudo causal.
+    """
+
+    def primary(bars: pl.DataFrame, features: pl.DataFrame) -> np.ndarray:
+        c, o, h, l = pl.col("close"), pl.col("open"), pl.col("high"), pl.col("low")
+        abody = (c - o).abs()
+        upper_wick = h - pl.max_horizontal("open", "close")
+        lower_wick = pl.min_horizontal("open", "close") - l
+        # Velas de reversão (pavio longo OU engolfo da vela anterior).
+        bull_pin = (lower_wick > pin_ratio * abody) & (lower_wick > upper_wick)
+        bear_pin = (upper_wick > pin_ratio * abody) & (upper_wick > lower_wick)
+        pc, po = c.shift(1), o.shift(1)
+        bull_eng = (c > o) & (pc < po) & (c >= po) & (o <= pc)
+        bear_eng = (c < o) & (pc > po) & (c <= po) & (o >= pc)
+        rev_bull = bull_pin | bull_eng
+        rev_bear = bear_pin | bear_eng
+        # Região: medida pela MÍNIMA (p/ fundo) e MÁXIMA (p/ topo) da vela — pois
+        # a vela de reversão TOCA o extremo, mas o fechamento se recupera.
+        hh, ll = h.rolling_max(lookback), l.rolling_min(lookback)
+        rng = hh - ll
+        pos_low = pl.when(rng > 0).then((l - ll) / rng).otherwise(0.5)
+        pos_high = pl.when(rng > 0).then((h - ll) / rng).otherwise(0.5)
+        side = (
+            pl.when((pos_low <= bottom_pct) & rev_bull).then(1)   # reversão de alta no fundo
+            .when((pos_high >= top_pct) & rev_bear).then(-1)       # reversão de baixa no topo
+            .otherwise(0)
+        )
+        return bars.select(side.alias("s"))["s"].fill_null(0).to_numpy().astype(np.int64)
+
+    return primary
+
+
+
 # ----------------------------------------------------------- meta-rótulos
 def meta_labels(
     bars: pl.DataFrame,

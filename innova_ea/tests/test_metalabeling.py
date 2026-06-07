@@ -19,6 +19,7 @@ from innova_ea.research.metalabeling import (
     build_metalabel_panel,
     donchian_breakout_primary,
     meta_labels,
+    reversal_at_extreme_primary,
 )
 
 
@@ -45,6 +46,30 @@ def test_meta_label_win_and_loss():
     down = _bars([100, 99, 97, 96], [100, 99, 97, 96], [100, 99, 97, 96], [100, 99, 97, 96])
     m2 = meta_labels(down, side_long, width=2.0, max_horizon=3, width_is_pct=False)
     assert m2[0] == 0
+
+
+def test_reversal_primary_bullish_at_bottom():
+    # Queda + engolfo de ALTA que faz nova mínima (fundo) → lado +1 (compra).
+    bars = _bars(
+        opens=[12.0, 11.9, 11.5, 11.1, 10.7, 9.9],
+        highs=[12.2, 12.0, 11.6, 11.2, 10.8, 11.0],
+        lows=[11.8, 11.4, 11.0, 10.6, 10.0, 9.8],
+        closes=[11.9, 11.5, 11.1, 10.7, 10.1, 10.9],   # última: verde, engole a vermelha
+    )
+    side = reversal_at_extreme_primary(lookback=5)(bars, bars)
+    assert side[5] == 1
+
+
+def test_reversal_primary_bearish_at_top():
+    # Alta + engolfo de BAIXA que faz nova máxima (topo) → lado -1 (venda).
+    bars = _bars(
+        opens=[8.0, 8.1, 8.5, 8.9, 9.3, 10.1],
+        highs=[8.2, 8.6, 9.0, 9.4, 9.6, 10.2],
+        lows=[7.8, 8.0, 8.4, 8.8, 9.2, 9.0],
+        closes=[8.1, 8.5, 8.9, 9.3, 9.5, 9.1],          # última: vermelha, engole a verde
+    )
+    side = reversal_at_extreme_primary(lookback=5)(bars, bars)
+    assert side[5] == -1
 
 
 def test_donchian_primary_breakouts():
