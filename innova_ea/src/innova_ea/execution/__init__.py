@@ -4,7 +4,13 @@ from innova_ea.execution.broker import (
     Broker,
     BrokerError,
     OrderResult,
+    PendingOrder,
     Position,
+)
+from innova_ea.execution.straddle_service import (
+    StraddleConfig,
+    StraddleExecutionService,
+    StraddleOutcome,
 )
 from innova_ea.execution.reconciliation import ReconcileAction, reconcile
 from innova_ea.execution.risk import RiskLimits, RiskManager, RiskState
@@ -21,6 +27,10 @@ __all__ = [
     "AccountState",
     "Position",
     "OrderResult",
+    "PendingOrder",
+    "StraddleExecutionService",
+    "StraddleConfig",
+    "StraddleOutcome",
     "reconcile",
     "ReconcileAction",
     "RiskManager",

@@ -56,6 +56,20 @@ class OrderResult:
     message: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class PendingOrder:
+    """Ordem pendente (stop) — usada pelo straddle de rompimento."""
+
+    ticket: int
+    symbol: str
+    side: int            # +1 buy-stop, -1 sell-stop
+    price: float         # nível de disparo
+    lots: float
+    sl: float = 0.0      # stop loss
+    tp: float = 0.0      # take profit
+
+
+
 class Broker(ABC):
     """Interface mínima exigida pelo ``ExecutionService``."""
 

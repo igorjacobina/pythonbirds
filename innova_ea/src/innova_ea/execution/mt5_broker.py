@@ -25,6 +25,7 @@ from innova_ea.execution.broker import (
     Broker,
     BrokerError,
     OrderResult,
+    PendingOrder,
     Position,
 )
 
@@ -166,3 +167,45 @@ class MT5Broker(Broker):
         price = getattr(result, "price", 0.0) if result else 0.0
         msg = "" if ok else f"retcode={getattr(result, 'retcode', '?')}"
         return OrderResult(ok, symbol, delta_lots, price, msg)
+
+    # ----------------------------------------------------- ordens pendentes (straddle)
+    def place_stop(self, symbol, side, price, lots, sl, tp) -> int:
+        """Coloca um stop pendente (side +1 buy-stop, -1 sell-stop) com SL/TP."""
+        otype = self._mt5.ORDER_TYPE_BUY_STOP if side > 0 else self._mt5.ORDER_TYPE_SELL_STOP
+        request = {
+            "action": self._mt5.TRADE_ACTION_PENDING,
+            "symbol": symbol,
+            "volume": abs(lots),
+            "type": otype,
+            "price": price,
+            "sl": sl,
+            "tp": tp,
+            "deviation": self.deviation_points,
+            "type_filling": getattr(self._mt5, "ORDER_FILLING_RETURN", 2),
+            "comment": "innova_ea_straddle",
+        }
+        result = self._mt5.order_send(request)
+        if result is None or result.retcode != self._mt5.TRADE_RETCODE_DONE:
+            raise BrokerError(f"falha ao colocar stop {symbol}: "
+                              f"retcode={getattr(result, 'retcode', '?')}")
+        return int(result.order)
+
+    def cancel_order(self, ticket: int) -> None:
+        request = {"action": self._mt5.TRADE_ACTION_REMOVE, "order": int(ticket)}
+        result = self._mt5.order_send(request)
+        if result is None or result.retcode != self._mt5.TRADE_RETCODE_DONE:
+            raise BrokerError(f"falha ao cancelar ordem {ticket}")
+
+    def pending_orders(self, symbol: str) -> list[PendingOrder]:
+        orders = self._mt5.orders_get(symbol=symbol) or []
+        buy_stop = self._mt5.ORDER_TYPE_BUY_STOP
+        out = []
+        for o in orders:
+            side = 1 if o.type == buy_stop else -1
+            out.append(PendingOrder(
+                ticket=int(o.ticket), symbol=o.symbol, side=side,
+                price=o.price_open, lots=o.volume_current,
+                sl=getattr(o, "sl", 0.0), tp=getattr(o, "tp", 0.0),
+            ))
+        return out
+
