@@ -35,8 +35,8 @@ Estratégia aprovada (**Straddle de rompimento de volatilidade**) está em **for
 
 - **Stack**: Python + Polars + NumPy + Numba + LightGBM + PyTorch (opcional)
 - **Dados**: MetaTrader5 / Dukascopy — 15 ativos, M1 desde 2015 (~48 milhões de barras)
-- **Testes**: ~137 testes automatizados, todos passando
-- **Código**: `/home/user/pythonbirds/innova_ea/`
+- **Testes**: 152 testes automatizados, todos passando
+- **Código**: raiz do repositório (`src/`, `scripts/`, `tests/`, `docs/`)
 
 ## Relacionado
 
