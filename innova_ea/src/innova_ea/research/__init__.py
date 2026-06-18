@@ -9,6 +9,7 @@ from innova_ea.research.dataset import (
 from innova_ea.research.labeling import forward_return, triple_barrier_labels
 from innova_ea.research.larry_williams import larry_backtest, larry_outcomes
 from innova_ea.research.opening_range import orb_backtest, orb_outcomes
+from innova_ea.research.innova_breakout import innova_breakout_outcomes
 from innova_ea.research.metalabeling import (
     MetaLabelModel,
     MetaModelStrategy,
@@ -52,6 +53,7 @@ __all__ = [
     "larry_backtest",
     "orb_outcomes",
     "orb_backtest",
+    "innova_breakout_outcomes",
     "PatternStats",
     "conditional_stats",
     "scan_conditions",
