@@ -7,6 +7,7 @@ from innova_ea.research.dataset import (
     label_to_class,
 )
 from innova_ea.research.labeling import forward_return, triple_barrier_labels
+from innova_ea.research.larry_williams import larry_backtest, larry_outcomes
 from innova_ea.research.metalabeling import (
     MetaLabelModel,
     MetaModelStrategy,
@@ -46,6 +47,8 @@ from innova_ea.research.splitting import PurgedWalkForward, PurgedWindow
 __all__ = [
     "forward_return",
     "triple_barrier_labels",
+    "larry_outcomes",
+    "larry_backtest",
     "PatternStats",
     "conditional_stats",
     "scan_conditions",
