@@ -1,0 +1,106 @@
+#!/usr/bin/env python
+"""Estudo do OPENING RANGE BREAKOUT de Andrea Unger (tetracampeão mundial).
+
+Mede a máxima/mínima das primeiras barras do dia (range de abertura) e opera o
+rompimento no restante do pregão, fechando no fim do dia. Filtro de Unger:
+"deixar a segunda-feira de fora". Testado com o mesmo rigor: custos, walk-forward,
+Deflated Sharpe.
+
+Exemplo (M15, range de abertura = 1ª hora = 4 barras):
+    python scripts/study_orb.py --store .\\data --timeframe M15 --or-bars 4 --cost 0.0004
+"""
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+
+import numpy as np
+
+from innova_ea.backtest.metrics import compute_metrics, periods_per_year
+from innova_ea.core.enums import Timeframe
+from innova_ea.data import ParquetStore
+from innova_ea.research import deflated_sharpe_ratio, orb_backtest, orb_outcomes
+from innova_ea.research.overfitting import deannualize_sharpe
+from innova_ea.universe import DEFAULT_UNIVERSE
+
+
+def _folds(n, fold_size):
+    lo = 0
+    while lo + fold_size <= n:
+        yield lo, lo + fold_size
+        lo += fold_size
+
+
+def study_asset(bars, tf, *, or_bars, reward_risk, cost, skip_monday, fold_size):
+    out = orb_outcomes(bars, or_bars=or_bars, reward_risk=reward_risk,
+                       cost_frac=cost, skip_monday=skip_monday)
+    sharpes, n_trades = [], 0
+    for lo, hi in _folds(bars.height, fold_size):
+        eq, pos, trades = orb_backtest(out[lo:hi], initial_capital=10_000.0)
+        if eq.shape[0] > 2 and trades.size > 0:
+            sharpes.append(compute_metrics(eq, pos, trades, tf, 10_000.0).sharpe)
+            n_trades += int(trades.size)
+    return sharpes, n_trades
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Estudo Opening Range Breakout / Unger")
+    ap.add_argument("--store", default="./data")
+    ap.add_argument("--timeframe", default="M15")
+    ap.add_argument("--symbols", nargs="+", default=DEFAULT_UNIVERSE)
+    ap.add_argument("--start", type=lambda s: datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc),
+                    default=datetime(2015, 1, 1, tzinfo=timezone.utc))
+    ap.add_argument("--end", type=lambda s: datetime.strptime(s, "%Y-%m-%d").replace(tzinfo=timezone.utc),
+                    default=None)
+    ap.add_argument("--or-bars", type=int, default=4, help="barras do range de abertura (M15×4=1h).")
+    ap.add_argument("--reward-risk", type=float, default=1.0)
+    ap.add_argument("--cost", type=float, default=0.0004)
+    ap.add_argument("--no-skip-monday", action="store_true", help="não pular segunda (filtro de Unger).")
+    ap.add_argument("--fold-size", type=int, default=8000)
+    args = ap.parse_args()
+
+    tf = Timeframe(args.timeframe)
+    ppy = periods_per_year(tf)
+    end = args.end or datetime.now(timezone.utc)
+    store = ParquetStore(args.store)
+    skip_monday = not args.no_skip_monday
+
+    all_sharpes: list[float] = []
+    per_asset: dict[str, float] = {}
+
+    print(f"Opening Range Breakout (Unger) | {tf.value} | or_bars={args.or_bars} "
+          f"skip_monday={skip_monday} cost={args.cost}\n")
+    for sym in args.symbols:
+        bars = store.read(sym, tf, args.start, end)
+        if bars.height < args.fold_size * 2:
+            print(f"  {sym}: dados insuficientes — pulando")
+            continue
+        sharpes, n_trades = study_asset(bars, tf, or_bars=args.or_bars,
+                                        reward_risk=args.reward_risk, cost=args.cost,
+                                        skip_monday=skip_monday, fold_size=args.fold_size)
+        if not sharpes:
+            continue
+        m = float(np.mean(sharpes))
+        per_asset[sym] = m
+        all_sharpes.extend(sharpes)
+        print(f"  {sym:<8} Sharpe OOS médio={m:+.2f} | {len(sharpes)} folds | {n_trades:,} trades")
+
+    if not all_sharpes:
+        print("\nNenhum ativo avaliado.")
+        return
+
+    sr = np.array(all_sharpes)
+    agg = float(sr.mean())
+    trial = [deannualize_sharpe(x, ppy) for x in all_sharpes]
+    dsr = deflated_sharpe_ratio(trial, n_obs=len(trial), selected_sharpe=deannualize_sharpe(agg, ppy))
+    n_pos = sum(1 for v in per_asset.values() if v > 0)
+
+    print(f"\n== Agregado OOS ({sr.size} ensaios, {len(per_asset)} ativos) ==")
+    print(f"  Sharpe OOS médio : {agg:+.2f}  (positivos {np.mean(sr > 0):.0%})")
+    print(f"  Ativos com Sharpe>0: {n_pos}/{len(per_asset)} "
+          f"(edge {'AMPLO' if n_pos >= 0.7 * len(per_asset) else 'CONCENTRADO'})")
+    print(f"  Deflated Sharpe  : {dsr:.1%}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,19 @@
+# Core runtime (cross-platform, runs in CI/Linux/cloud)
+polars>=0.20
+numpy>=1.24
+numba>=0.58
+pyarrow>=14
+pandas>=2.0            # intermediário p/ converter arrays estruturados do MT5
+lightgbm>=4.0          # baseline universal (Fase 4)
+
+# Super Cérebro (Transformer) — opcional, GPU recomendado para treino real.
+# Instale com:  pip install torch
+# torch>=2.1
+
+# Execution / live data — Windows only, optional.
+# Install separately on the trading VM:  pip install MetaTrader5
+# MetaTrader5>=5.0.45
+
+# Dev / test
+pytest>=7.4
+pytest-cov>=4.1
