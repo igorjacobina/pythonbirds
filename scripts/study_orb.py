@@ -34,13 +34,15 @@ def _folds(n, fold_size):
 def study_asset(bars, tf, *, or_bars, reward_risk, cost, skip_monday, fold_size):
     out = orb_outcomes(bars, or_bars=or_bars, reward_risk=reward_risk,
                        cost_frac=cost, skip_monday=skip_monday)
-    sharpes, n_trades = [], 0
+    sharpes, drawdowns, n_trades = [], [], 0
     for lo, hi in _folds(bars.height, fold_size):
         eq, pos, trades = orb_backtest(out[lo:hi], initial_capital=10_000.0)
         if eq.shape[0] > 2 and trades.size > 0:
-            sharpes.append(compute_metrics(eq, pos, trades, tf, 10_000.0).sharpe)
+            mtr = compute_metrics(eq, pos, trades, tf, 10_000.0)
+            sharpes.append(mtr.sharpe)
+            drawdowns.append(mtr.max_drawdown)
             n_trades += int(trades.size)
-    return sharpes, n_trades
+    return sharpes, drawdowns, n_trades
 
 
 def main() -> None:
@@ -66,6 +68,7 @@ def main() -> None:
     skip_monday = not args.no_skip_monday
 
     all_sharpes: list[float] = []
+    all_drawdowns: list[float] = []
     per_asset: dict[str, float] = {}
 
     print(f"Opening Range Breakout (Unger) | {tf.value} | or_bars={args.or_bars} "
@@ -75,15 +78,18 @@ def main() -> None:
         if bars.height < args.fold_size * 2:
             print(f"  {sym}: dados insuficientes — pulando")
             continue
-        sharpes, n_trades = study_asset(bars, tf, or_bars=args.or_bars,
-                                        reward_risk=args.reward_risk, cost=args.cost,
-                                        skip_monday=skip_monday, fold_size=args.fold_size)
+        sharpes, drawdowns, n_trades = study_asset(bars, tf, or_bars=args.or_bars,
+                                                   reward_risk=args.reward_risk, cost=args.cost,
+                                                   skip_monday=skip_monday, fold_size=args.fold_size)
         if not sharpes:
             continue
         m = float(np.mean(sharpes))
+        worst_dd = min(drawdowns) if drawdowns else 0.0
         per_asset[sym] = m
         all_sharpes.extend(sharpes)
-        print(f"  {sym:<8} Sharpe OOS médio={m:+.2f} | {len(sharpes)} folds | {n_trades:,} trades")
+        all_drawdowns.extend(drawdowns)
+        print(f"  {sym:<8} Sharpe OOS méd={m:+.2f} | DD pior={worst_dd:+.1%} | "
+              f"{len(sharpes)} folds | {n_trades:,} trades")
 
     if not all_sharpes:
         print("\nNenhum ativo avaliado.")
@@ -95,10 +101,12 @@ def main() -> None:
     dsr = deflated_sharpe_ratio(trial, n_obs=len(trial), selected_sharpe=deannualize_sharpe(agg, ppy))
     n_pos = sum(1 for v in per_asset.values() if v > 0)
 
+    dd = np.array(all_drawdowns)
     print(f"\n== Agregado OOS ({sr.size} ensaios, {len(per_asset)} ativos) ==")
     print(f"  Sharpe OOS médio : {agg:+.2f}  (positivos {np.mean(sr > 0):.0%})")
     print(f"  Ativos com Sharpe>0: {n_pos}/{len(per_asset)} "
           f"(edge {'AMPLO' if n_pos >= 0.7 * len(per_asset) else 'CONCENTRADO'})")
+    print(f"  Drawdown (OOS)   : pior {dd.min():+.1%} | médio {dd.mean():+.1%}")
     print(f"  Deflated Sharpe  : {dsr:.1%}")
 
 
