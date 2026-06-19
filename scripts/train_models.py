@@ -76,13 +76,15 @@ def build_model(kind, panel, *, gbm_kwargs=None, sb_kwargs=None):
 
 def evaluate_walk_forward(panel, feature_set, bars_by, kind, *, timeframe,
                           max_horizon, train_size, test_size, threshold,
-                          gbm_kwargs=None, sb_kwargs=None):
+                          gbm_kwargs=None, sb_kwargs=None, max_folds=None):
     """Walk-forward purgado → Sharpe OOS por ativo (com risco) e Deflated Sharpe."""
     wf = PurgedWalkForward(train_size, test_size, horizon=max_horizon, embargo=max_horizon)
     oos_sharpes: list[float] = []
     ppy = periods_per_year(timeframe)
 
     for train_df, test_df, win in wf.split(panel.frame):
+        if max_folds is not None and win.index >= max_folds:
+            break
         model = build_model(kind, panel, gbm_kwargs=gbm_kwargs, sb_kwargs=sb_kwargs)
         model.fit(train_df, test_df)
         true = label_to_class(test_df["label"].to_numpy())
@@ -123,7 +125,7 @@ def evaluate_walk_forward(panel, feature_set, bars_by, kind, *, timeframe,
 
 def train(store_path, *, symbols, timeframe, start, end, model_kind, out_dir,
           max_horizon=16, train_size=40000, test_size=15000, threshold=0.15,
-          gbm_kwargs=None, sb_kwargs=None, run_eval=True):
+          max_folds=None, gbm_kwargs=None, sb_kwargs=None, run_eval=True):
     """Pipeline completo: carrega → painel → (valida) → treina final → salva."""
     store = ParquetStore(store_path)
     bars_by = load_bars(store, symbols, timeframe, start, end)
@@ -147,7 +149,8 @@ def train(store_path, *, symbols, timeframe, start, end, model_kind, out_dir,
                 report = evaluate_walk_forward(
                     panel, feature_set, bars_by, kind, timeframe=timeframe,
                     max_horizon=max_horizon, train_size=train_size, test_size=test_size,
-                    threshold=threshold, gbm_kwargs=gbm_kwargs, sb_kwargs=sb_kwargs)
+                    threshold=threshold, max_folds=max_folds,
+                    gbm_kwargs=gbm_kwargs, sb_kwargs=sb_kwargs)
                 print(f"  -> OOS Sharpe médio {report['mean_oos_sharpe']:+.2f} | "
                       f"Deflated Sharpe {report['deflated_sharpe']:.1%}")
             except ValueError as e:
@@ -193,6 +196,8 @@ def main():
     ap.add_argument("--train-size", type=int, default=40000)
     ap.add_argument("--test-size", type=int, default=15000)
     ap.add_argument("--threshold", type=float, default=0.15)
+    ap.add_argument("--max-folds", type=int, default=12,
+                    help="limita o nº de janelas do walk-forward (evita explosão em TF baixo; 0 = sem limite).")
     ap.add_argument("--no-eval", action="store_true", help="pula a validação walk-forward")
     args = ap.parse_args()
 
@@ -208,6 +213,7 @@ def main():
         train_size=args.train_size,
         test_size=args.test_size,
         threshold=args.threshold,
+        max_folds=(args.max_folds if args.max_folds > 0 else None),
         run_eval=not args.no_eval,
     )
     print("\n✓ Treino concluído.")
