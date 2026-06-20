@@ -10,6 +10,13 @@ from innova_ea.research.labeling import forward_return, triple_barrier_labels
 from innova_ea.research.larry_williams import larry_backtest, larry_outcomes
 from innova_ea.research.opening_range import orb_backtest, orb_outcomes
 from innova_ea.research.innova_breakout import innova_breakout_outcomes
+from innova_ea.research.prop import (
+    FTMO_CHALLENGE,
+    challenge_stats,
+    equity_metrics,
+    simulate_challenge,
+    sweep_leverage,
+)
 from innova_ea.research.metalabeling import (
     MetaLabelModel,
     MetaModelStrategy,
@@ -54,6 +61,11 @@ __all__ = [
     "orb_outcomes",
     "orb_backtest",
     "innova_breakout_outcomes",
+    "FTMO_CHALLENGE",
+    "simulate_challenge",
+    "challenge_stats",
+    "equity_metrics",
+    "sweep_leverage",
     "PatternStats",
     "conditional_stats",
     "scan_conditions",
