@@ -86,7 +86,11 @@ def combined_daily_returns(store, symbols, tf, start, end, *, net_fn, or_bars, c
         return None, []
     master = master.fill_null(0.0).sort("day")
     sym_cols = [c for c in master.columns if c != "day"]
-    combined = master.select(pl.sum_horizontal(sym_cols).alias("r"))["r"].to_numpy()
+    # CAPITAL DIVIDIDO igualmente entre os ativos (equal-weight): a carteira a 1x
+    # = média dos retornos por ativo, NÃO a soma (somar = alavancagem oculta de Nx).
+    combined = master.select(
+        (pl.sum_horizontal(sym_cols) / float(len(sym_cols))).alias("r")
+    )["r"].to_numpy()
     return combined, used
 
 
